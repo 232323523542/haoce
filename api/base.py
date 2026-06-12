@@ -714,6 +714,7 @@ class HaoceAPI:
                             ch_info = chapter_objs[ch_idx]
                             novel_container = novel_data.get("novel", {})
                             novel_meta = novel_container.get("novel", {})
+                            self.rate_limit(1.5)
                             ch_content = self.get_chapter_content(
                                 ch_info["cp_id"], novel_meta, book_id)
                             if isinstance(ch_content, dict) and ch_content.get("text"):

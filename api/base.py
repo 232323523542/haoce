@@ -156,16 +156,25 @@ class HaoceAPI:
         if not chapter:
             return {}
 
-        # 从 contents 数组中提取文本
+        # 从 contents 数组中提取文本 + 段落
         contents = chapter.get("contents", [])
-        text_parts = []
+        all_text = []
+        paragraphs = []  # 自然段落（只保留英文）
         for c in contents:
             if c.get("type") == "text" and c.get("text"):
-                text_parts.append(c["text"])
+                txt = c["text"]
+                all_text.append(txt)
+                # 去掉中文后如果还有足够英文，作为一个自然段落
+                clean = re.sub(r"<[^>]+>", "", txt)
+                en_only = re.sub(r"[一-鿿　-〿＀-￯]+", " ", clean)
+                en_only = re.sub(r"\s+", " ", en_only).strip()
+                if len(en_only.split()) >= 15:
+                    paragraphs.append(en_only)
 
         return {
             "title": chapter.get("title", ""),
-            "text": "\n".join(text_parts),
+            "text": "\n".join(all_text),
+            "paragraphs": paragraphs,
             "raw": chapter,
         }
 
@@ -717,22 +726,20 @@ class HaoceAPI:
                             self.rate_limit(1.5)
                             ch_content = self.get_chapter_content(
                                 ch_info["cp_id"], novel_meta, book_id)
-                            if isinstance(ch_content, dict) and ch_content.get("text"):
-                                raw = ch_content["text"]
-                                raw = re.sub(r"<[^>]+>", "", raw)
-                                raw = re.sub(r"[一-鿿　-〿＀-￯]+", " ", raw)
-                                raw = re.sub(r"\s+", " ", raw).strip()
-                                words = raw.split()
-                                if len(words) >= 80:
-                                    chunk_size = random.randint(60, 100)
-                                    # 该章会被用几次，把章节等分
-                                    uses = (remaining + len(chapter_objs) - 1 - ch_idx) // len(chapter_objs)
-                                    which = i // len(chapter_objs)
-                                    step = max(1, (len(words) - chunk_size) // uses)
-                                    start = min(which * step, len(words) - chunk_size)
-                                    passage = " ".join(words[start:start + chunk_size])
-                                    passage_title = ch_content.get("title") or ch_info.get("chapter", passage_title)
-                                    ch_label = ch_info.get("chapter", "")[:15]
+                            if isinstance(ch_content, dict) and ch_content.get("paragraphs"):
+                                paras = ch_content["paragraphs"]
+                                # 拣段落：同一章多次访问时自动错开
+                                p_idx = (ch_idx + i) % len(paras) if paras else 0
+                                p = paras[p_idx]
+                                words = p.split()
+                                if len(words) >= 50:
+                                    # 如果段落太长，截到 60-100 词
+                                    limit = random.randint(60, 100)
+                                    passage = " ".join(words[:limit])
+                                else:
+                                    passage = p
+                                passage_title = ch_content.get("title") or ch_info.get("chapter", passage_title)
+                                ch_label = ch_info.get("chapter", "")[:15]
 
                         if not passage:
                             topic_data = self.llm.generate_reading_passage(

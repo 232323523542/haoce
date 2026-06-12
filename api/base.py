@@ -608,10 +608,27 @@ class HaoceAPI:
 
                 # 1) 发主题
                 for i in range(topic_remaining):
+                    # 拉一章真实原文段落，让讨论内容引用具体情节
+                    passage = ""
+                    if chapter_objs and novel_id and novel_data:
+                        ch_idx = i % len(chapter_objs)
+                        ch_info = chapter_objs[ch_idx]
+                        novel_meta = novel_data.get("novel", {}).get("novel", {})
+                        self.rate_limit(1.5)
+                        ch_content = self.get_chapter_content(
+                            ch_info["cp_id"], novel_meta, book_id)
+                        if ch_content.get("paragraphs"):
+                            paras = ch_content["paragraphs"]
+                            p = paras[(ch_idx + i) % len(paras)]
+                            words = p.split()
+                            limit = random.randint(60, min(100, len(words)))
+                            passage = " ".join(words[:limit])
+
                     print(f"    [主题 #{i+1}/{topic_remaining}] 生成中...", end=" ")
                     topic_data = self.llm.generate_topic(
                         book_title=book_title, tag_type="0",
                         chapters=chapters, book_author=book_author,
+                        passage=passage,
                     )
                     if not topic_data:
                         print("[FAIL]")
@@ -643,9 +660,19 @@ class HaoceAPI:
                     if not reply_targets:
                         print(f"    [WARN] 没有可回复的主题，先发一个主题再回复")
                         # 先发一个主题再回复自己（作为兜底）
+                        fallback_passage = ""
+                        if chapter_objs and novel_id and novel_data:
+                            fc = chapter_objs[0]
+                            fm = novel_data.get("novel", {}).get("novel", {})
+                            self.rate_limit(1.5)
+                            fcc = self.get_chapter_content(fc["cp_id"], fm, book_id)
+                            if fcc.get("paragraphs"):
+                                fw = fcc["paragraphs"][0].split()
+                                fallback_passage = " ".join(fw[:80])
                         topic_data = self.llm.generate_topic(
                             book_title=book_title, tag_type="0",
                             chapters=chapters, book_author=book_author,
+                            passage=fallback_passage,
                         )
                         if topic_data:
                             title = topic_data.get("title", "Discussion thread")

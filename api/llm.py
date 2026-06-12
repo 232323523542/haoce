@@ -22,7 +22,8 @@ class LLMClient(ABC):
 
     def generate_topic(self, book_title: str, tag_type: str,
                        chapters: list[str] = None,
-                       book_author: str = "") -> Optional[dict]:
+                       book_author: str = "",
+                       passage: str = "") -> Optional[dict]:
         """
         根据书籍信息生成一条任务提交内容
 
@@ -31,6 +32,7 @@ class LLMClient(ABC):
             tag_type: "0"=讨论, "5"=报告, "6"=摘抄
             chapters: 章节标题列表
             book_author: 作者
+            passage: 原文段落（用于讨论帖，让内容具体引用原文）
 
         Returns:
             {"title": "...", "content": "...", "yanwen": "..."} 或 None
@@ -45,7 +47,8 @@ class LLMClient(ABC):
                 "system": "你是一名大学生，正在完成英语阅读课的讨论作业。请根据书籍内容写出真实的读后感讨论帖。用英文写作，语气自然像学生，不要用 AI 腔。只返回 JSON，不要其他文字。",
                 "user": f"""书名: {book_title}
 {chapter_hints}
-请写一条讨论帖 (80-150词)，要有具体内容（提到书中情节或观点），语气自然。
+原文引用: "{passage}"
+请围绕这段原文写一条讨论帖 (80-150词)，要引用或讨论原文的具体内容，语气自然像学生。
 返回格式: {{"title": "讨论标题", "content": "讨论正文"}}""",
             },
             "5": {

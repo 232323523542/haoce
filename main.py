@@ -131,39 +131,62 @@ def main():
         print("无效")
 
     # 选任务
-    tag_keys = list(tasks.keys())
-    print(f"\n{title}")
-    for i, name in enumerate(tag_keys):
-        print(f"  {i+1}. {name} ({tasks[name]})")
-    print(f"  0. 返回")
+    tag_map = {"朗读": "3", "摘抄": "6", "报告": "5", "讨论": "0"}
 
     while True:
-        s = input_str("\n选任务: ")
-        if s == "0": return
+        # 刷新任务进度
         try:
-            idx = int(s) - 1
-            if 0 <= idx < len(tag_keys):
-                name = tag_keys[idx]
-                break
-        except ValueError:
-            pass
-        print("无效")
+            d = api.get_book_detail(bid)
+        except Exception:
+            d = {}
+        bj = d.get("bookJoin", {})
+        bi = d.get("book", {})
+        tasks = {}
+        n = int(bi.get("tag_3_config", 0))
+        if n: tasks["朗读"] = f"{int(bj.get('tag_3_cnt',0))}/{n}"
+        n = int(bi.get("tag_6_config", 0))
+        if n: tasks["摘抄"] = f"{int(bj.get('tag_6_cnt',0))}/{n}"
+        n = int(bi.get("tag_5_config", 0))
+        if n: tasks["报告"] = f"{int(bj.get('tag_5_cnt',0))}/{n}"
+        tn, cn = parse_discuss_req(d.get("task", {}).get("0", ""))
+        if tn or cn: tasks["讨论"] = f"帖{int(bj.get('topic_cnt',0))}/{tn} 回{int(bj.get('comment_cnt',0))}/{cn}"
 
-    # 映射
-    tag_map = {"朗读": "3", "摘抄": "6", "报告": "5", "讨论": "0"}
-    tag_id = tag_map.get(name)
-    if not tag_id: print(f"未知任务: {name}"); return
+        tag_keys = list(tasks.keys())
+        print(f"\n{title}")
+        for i, name in enumerate(tag_keys):
+            print(f"  {i+1}. {name} ({tasks[name]})")
+        print(f"  0. 返回")
 
-    print(f"\n开始: {title} / {name}")
-    print("-" * 40)
+        while True:
+            s = input_str("\n选任务: ")
+            if s == "0": break
+            try:
+                idx = int(s) - 1
+                if 0 <= idx < len(tag_keys):
+                    name = tag_keys[idx]
+                    break
+            except ValueError:
+                pass
+            print("无效")
 
-    try:
-        api.auto_complete_tasks(bid, target_tag=tag_id)
-    except Exception as e:
-        print(f"出错: {e}")
-        traceback.print_exc()
+        if s == "0":
+            break
 
-    print("\n处理完毕")
+        tag_id = tag_map.get(name)
+        if not tag_id:
+            print(f"未知任务: {name}")
+            continue
+
+        print(f"\n开始: {title} / {name}")
+        print("-" * 40)
+
+        try:
+            api.auto_complete_tasks(bid, target_tag=tag_id)
+        except Exception as e:
+            print(f"出错: {e}")
+            traceback.print_exc()
+
+        print("\n处理完毕\n")
 
 
 if __name__ == "__main__":

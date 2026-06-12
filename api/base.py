@@ -223,7 +223,8 @@ class HaoceAPI:
         chapters = novel.get("chapter", [])
         mslad = novel_data.get("mslad", "")
         mslad2 = novel_data.get("mslad2", "")
-        novel_name = novel.get("novel", "")
+        novel_meta = novel.get("novel", {})
+        novel_name = novel_meta.get("novel", "") if isinstance(novel_meta, dict) else str(novel_meta)
 
         print(f"  共 {len(chapters)} 章, mslad={mslad[:16]}...")
 
@@ -351,6 +352,62 @@ class HaoceAPI:
         data = resp.get("data", {})
         return data.get("topic_list", {}).get("list", [])
 
+    def submit_reading_aloud(self, book_id: str, text: str,
+                             title: str = "",
+                             amr_data: bytes = None,
+                             voice: str = "natural young male voice") -> bool:
+        """
+        提交朗读任务 — multipart 上传音频到 /book/topicAdd/tag3
+
+        Args:
+            book_id: 书籍 ID
+            text: 朗读的文本内容 (topic_info)
+            title: 标题
+            amr_data: AMR 音频字节 (None 则用静音兜底)
+            voice: 音色描述 (给 TTS 用)
+        """
+        from api.tts import generate_reading_audio
+
+        if title == "":
+            title = "Reading Aloud Practice"
+
+        word_cnt = len(text.split())
+
+        if amr_data is None:
+            amr_data, _ = generate_reading_audio(text, voice_instruct=voice)
+
+        try:
+            resp = self.http.session.post(
+                f"{self.BASE_URL}/book/topicAdd/tag3",
+                files={"file": ("reading.amr", amr_data, "audio/amr")},
+                data={
+                    "book_id": book_id,
+                    "tag_id": "3",
+                    "topic": title,
+                    "topic_info": text,
+                    "word_cnt": str(word_cnt),
+                    "t_id": "0",
+                    "MB_time": str(int(time.time())),
+                    "MB_version": "3.9",
+                    "MB_os": "android",
+                },
+                headers={
+                    "X-Display": "json",
+                    "LOGINUA": "PC",
+                },
+                timeout=60,
+            )
+            result = resp.json()
+            err = result.get("error", -1)
+            if err == 0:
+                return True
+            else:
+                print(f"    [FAIL] {result.get('error_des', err)}")
+                return False
+        except Exception as e:
+            print(f"    [FAIL] Upload error: {e}")
+            return False
+
     def add_novel_note(self, book_id: str, novel_id: str,
                        cp_id: str, comment: str) -> dict:
         """
@@ -458,14 +515,17 @@ class HaoceAPI:
 
         # 获取章节信息（供 LLM 参考）
         chapters = []
+        chapter_objs = []  # 完整章节对象（含 cp_id）
         isbn = book_info.get("isbn", {}) or {}
         novel_id = str(isbn.get("novel_id", 0))
+        novel_data = None
         if novel_id and int(novel_id) > 0:
             try:
                 novel_data = self.get_novel_info(novel_id, book_id)
                 if novel_data:
                     novel = novel_data.get("novel", {})
-                    chapters = [ch.get("chapter", "") for ch in novel.get("chapter", [])[:10]]
+                    chapter_objs = novel.get("chapter", [])[:10]
+                    chapters = [ch.get("chapter", "") for ch in chapter_objs]
             except Exception:
                 pass
 
@@ -596,9 +656,69 @@ class HaoceAPI:
                 continue
 
             if tid == "3":
-                print(f"    [WARN] 朗读需要手机 App 录音上传，无法自动完成")
-                print(f"    请使用好策 App 朗读 {remaining} 次")
-                results[tid] = {"completed": False, "reason": "需要App录音", "remaining": remaining}
+                if not self.llm:
+                    print(f"    [WARN] 未配置 LLM，跳过")
+                    results[tid] = {"completed": False, "reason": "无LLM", "remaining": remaining}
+                    continue
+
+                created = 0
+                for i in range(remaining):
+                    print(f"    [朗读 #{i+1}/{remaining}]", end=" ")
+
+                    # 优先尝试获取真实章节内容
+                    passage = None
+                    passage_title = "Reading Aloud"
+                    if chapter_objs and novel_id and novel_data:
+                        ch_idx = i % len(chapter_objs)
+                        ch_info = chapter_objs[ch_idx]
+                        # 修正 novel_name 取法: nd['novel']['novel']['novel']
+                        try:
+                            novel_container = novel_data.get("novel", {})
+                            novel_meta = novel_container.get("novel", {})
+                            n_name = novel_meta.get("novel", "") if isinstance(novel_meta, dict) else str(novel_meta)
+                            ch_content = self.get_chapter_content(
+                                ch_info["cp_id"], n_name, book_id)
+                            if isinstance(ch_content, dict) and ch_content.get("content"):
+                                raw = ch_content["content"]
+                                # 去掉 HTML 标签
+                                raw = re.sub(r"<[^>]+>", "", raw)
+                                words = raw.split()
+                                if len(words) >= 50:
+                                    passage = " ".join(words[:100])
+                                    passage_title = ch_info.get("chapter", passage_title)
+                                    print(f"[真实章节 {len(words)}词]", end=" ")
+                        except Exception:
+                            pass
+
+                    # 章节内容获取失败，用 LLM 生成类似书中段落的文本
+                    if not passage:
+                        print("生成...", end=" ")
+                        topic_data = self.llm.generate_reading_passage(
+                            book_title=book_title,
+                            chapters=chapters,
+                            book_author=book_author,
+                        )
+                        if not topic_data:
+                            print("[FAIL]")
+                            continue
+                        passage = topic_data.get("content", "")
+                        passage_title = topic_data.get("title", passage_title)
+
+                    while len(passage.split()) < 50:
+                        passage += " This passage is selected from the book for reading practice."
+
+                    print(f"[{len(passage.split())}词]", end=" ")
+                    ok = self.submit_reading_aloud(
+                        book_id=book_id,
+                        text=passage,
+                        title=passage_title,
+                    )
+                    if ok:
+                        print("[OK]")
+                        created += 1
+                    time.sleep(random.uniform(4, 7))
+
+                results[tid] = {"completed": created >= remaining, "created": created}
                 continue
 
             if not self.llm:

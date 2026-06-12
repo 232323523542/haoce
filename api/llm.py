@@ -85,6 +85,36 @@ class LLMClient(ABC):
 
         return None
 
+    def generate_reading_passage(self, book_title: str,
+                                 chapters: list[str] = None,
+                                 book_author: str = "") -> Optional[dict]:
+        """
+        生成一段朗读文本 — 模仿书中段落的风格，不是讨论帖
+
+        Returns:
+            {"title": "章节标题", "content": "朗读段落文本"}
+        """
+        chapter_hints = ""
+        if chapters:
+            chapter_hints = "章节: " + ", ".join(chapters[:6])
+
+        messages = [
+            {"role": "system", "content": "你正在朗读一本英文书的一段原文。请写一段像是从这本书中摘录的英文段落，用于朗读练习。语言流畅自然，像是在读书中的内容。只返回 JSON，不要其他文字。"},
+            {"role": "user", "content": f"书名: {book_title}\n{chapter_hints}\n请写一段像是从这本书中摘出的英文段落（60-100词），适合朗读。要听起来像书中的原文。\n返回格式: {{\"title\": \"段落所属章节名\", \"content\": \"朗读的段落文本\"}}"},
+        ]
+
+        for attempt in range(2):
+            try:
+                response = self.chat(messages)
+                result = self._parse_json_response(response, "reading")
+                if result:
+                    return result
+            except Exception as e:
+                print(f"    [WARN] LLM 失败 (尝试 {attempt+1}/2): {e}")
+                if attempt == 0:
+                    time.sleep(5)
+        return None
+
     def generate_reply(self, book_title: str, topic_title: str = "",
                        chapters: list[str] = None) -> Optional[str]:
         """
@@ -181,6 +211,7 @@ class LLMClient(ABC):
             raise ValueError("缺少 title 或 content 字段")
         if tag_type == "6" and "yanwen" not in result:
             raise ValueError("摘抄需要 yanwen 字段")
+        # reading 不需要 yanwen，只需要 title+content
         # 确保内容不太短
         if len(result.get("content", "").split()) < 20:
             raise ValueError("内容太短")

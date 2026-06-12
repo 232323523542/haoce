@@ -568,8 +568,8 @@ class HaoceAPI:
                     novel = novel_data.get("novel", {})
                     chapter_objs = novel.get("chapter", [])[:10]
                     chapters = [ch.get("chapter", "") for ch in chapter_objs]
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"    [WARN] 获取章节列表失败: {e}")
 
         results = {}
 
@@ -703,6 +703,7 @@ class HaoceAPI:
                     results[tid] = {"completed": False, "reason": "无LLM", "remaining": remaining}
                     continue
 
+                print(f"    可用章节: {len(chapter_objs)}")
                 created = 0
                 for i in range(remaining):
                     try:

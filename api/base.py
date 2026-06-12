@@ -428,6 +428,10 @@ class HaoceAPI:
         if amr_data is None:
             amr_data, _ = generate_reading_audio(text, voice_instruct=voice, config=self.config)
 
+        if amr_data is None:
+            print(f"    [FAIL] TTS 生成失败，无音频")
+            return False
+
         audio_bytes = amr_data
         ext = "mp3"
         mime = "audio/mpeg"
@@ -792,11 +796,6 @@ class HaoceAPI:
                     results[tid] = {"completed": False, "reason": "无TTS", "remaining": remaining}
                     continue
 
-                if not self.llm:
-                    print(f"    [WARN] 未配置 LLM，跳过")
-                    results[tid] = {"completed": False, "reason": "无LLM", "remaining": remaining}
-                    continue
-
                 created = 0
                 for i in range(remaining):
                     try:
@@ -836,6 +835,9 @@ class HaoceAPI:
                                 ch_label = ch_info.get("chapter", "")[:15]
 
                         if not passage:
+                            if not self.llm:
+                                print(f"    [{i+1}/{remaining}] 无章节内容且无LLM，跳过")
+                                continue
                             topic_data = self.llm.generate_reading_passage(
                                 book_title=book_title, chapters=chapters, book_author=book_author)
                             if not topic_data:

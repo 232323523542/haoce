@@ -60,8 +60,18 @@ def main():
     print("好策自动阅读")
 
     # 账号
-    phone = cfg["phone"] or input_str("手机号: ")
-    password = cfg["password"] or input_str("密码: ")
+    saved_phone = cfg["phone"]
+    if saved_phone:
+        print(f"\n已存账号: {saved_phone}")
+        phone = input_str("输入手机号 (回车用已存账号): ")
+        if phone == "":
+            phone = saved_phone
+            password = cfg["password"]
+        else:
+            password = input_str("密码: ")
+    else:
+        phone = input_str("手机号: ")
+        password = input_str("密码: ")
     if not phone or not password:
         print("手机号和密码不能为空"); sys.exit(1)
 

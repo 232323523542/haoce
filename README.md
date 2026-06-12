@@ -39,7 +39,7 @@ python main.py
 
 ### LLM（讨论/摘抄/报告用）
 
-- **OpenAI API**：买个 key 填进去就行
+- **API**：买个 key 填进去就行
 - **Ollama 本地**：免费，装好 Ollama 下个模型就能用
 - **跳过**：不提交讨论/摘抄/报告
 

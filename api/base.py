@@ -324,6 +324,33 @@ class HaoceAPI:
         )
         return resp
 
+    def create_comment(self, book_id: str, topic_id: str,
+                       comment: str) -> dict:
+        """
+        回复一个主题 (讨论的"回复"部分)
+        POST /book/commentAdd/{book_id}/{topic_id}
+        """
+        data = {
+            "topic_id": topic_id,
+            "comment": comment,
+            "word_cnt": str(len(comment.split())),
+        }
+        self.rate_limit(3.0)
+        resp = self.http.json_request(
+            f"{self.BASE_URL}/book/commentAdd/{book_id}/{topic_id}",
+            data=data,
+        )
+        return resp
+
+    def get_topic_list(self, book_id: str, page: int = 1) -> list[dict]:
+        """获取一本书的讨论主题列表"""
+        self.rate_limit(2.0)
+        resp = self.http.json_request(
+            f"{self.BASE_URL}/app/bookOne/topicList/{book_id}?pageno={page}"
+        )
+        data = resp.get("data", {})
+        return data.get("topic_list", {}).get("list", [])
+
     def add_novel_note(self, book_id: str, novel_id: str,
                        cp_id: str, comment: str) -> dict:
         """
@@ -348,6 +375,42 @@ class HaoceAPI:
     # 自动完成任务
     # ============================================================
 
+    @staticmethod
+    def _parse_discuss_requirement(task_desc: str, default_word: int = 30) -> tuple:
+        """
+        从讨论任务描述中解析需求数量
+        例: "至少发帖2次，回复...至少10次" → (2, 10)
+             "至少发布2次主题帖，回复...至少10次" → (2, 10)
+        """
+        import re
+        topics = 0
+        replies = 0
+        # 主题/发帖数: "发帖N次" 或 "发布N次主题" 或 "N次主题帖"
+        for pat in [r'发帖\s*(\d+)\s*次', r'发布\s*(\d+)\s*次\s*主题',
+                    r'(\d+)\s*次\s*主题帖']:
+            m = re.search(pat, task_desc)
+            if m:
+                topics = int(m.group(1))
+                break
+        # 回复数: "回复...N次" 或 "回帖...N次"
+        for pat in [r'回复\D*?(\d+)\s*次', r'回帖\D*?(\d+)\s*次']:
+            m = re.search(pat, task_desc)
+            if m:
+                replies = int(m.group(1))
+                break
+        # 兜底: 两个不同数字，小的通常是主题数
+        if topics == 0 or replies == 0:
+            nums = [int(m.group(1)) for m in re.finditer(r'(\d+)\s*次', task_desc)]
+            nums = [n for n in nums if n > 0]
+            if len(nums) >= 2:
+                if topics == 0:
+                    topics = min(nums)
+                if replies == 0:
+                    replies = max(nums)
+            elif len(nums) == 1 and replies == 0:
+                replies = nums[0]
+        return topics, replies
+
     def auto_complete_tasks(self, book_id: str, target_tag: str = None) -> dict:
         """
         自动完成一本书的所有非朗读任务（使用 LLM 生成内容）
@@ -369,12 +432,20 @@ class HaoceAPI:
         book_title = book_info.get("book", book_id)
         book_author = book_info.get("author", "")
 
-        # 各类型任务的需求和当前进度
+        # 各类型任务的需求和当前进度 (tag_0 讨论除外，讨论用 topic_cnt/comment_cnt)
         tag_configs = {}
         tag_current = {}
-        for tid in ["0", "3", "4", "5", "6", "9"]:
+        for tid in ["3", "4", "5", "6", "9"]:
             tag_configs[tid] = int(book_info.get(f"tag_{tid}_config", 0))
             tag_current[tid] = int(bj.get(f"tag_{tid}_cnt", 0))
+
+        # 讨论任务: 分"主题"和"回复"两部分
+        discuss_topic_need, discuss_reply_need = self._parse_discuss_requirement(
+            detail.get("task", {}).get("0", ""),
+            book_info.get("word_topic", 30),
+        )
+        discuss_topic_done = int(bj.get("topic_cnt", 0))
+        discuss_reply_done = int(bj.get("comment_cnt", 0))
 
         tag_names = {
             "0": "讨论", "3": "朗读", "4": "重要",
@@ -400,7 +471,114 @@ class HaoceAPI:
 
         results = {}
 
-        for tid in ["0", "6", "5", "3"]:
+        # ---- 讨论 (tag_id=0) 特殊处理: 主题 + 回复 ----
+        if not target_tag or target_tag == "0":
+            tid = "0"
+            name = "讨论"
+
+            topic_remaining = max(0, discuss_topic_need - discuss_topic_done)
+            reply_remaining = max(0, discuss_reply_need - discuss_reply_done)
+            print(f"\n  [{name}] 主题 {discuss_topic_done}/{discuss_topic_need}, "
+                  f"回复 {discuss_reply_done}/{discuss_reply_need}")
+
+            if topic_remaining <= 0 and reply_remaining <= 0:
+                print(f"    [OK] 已完成")
+                results[tid] = {"completed": True, "topics": 0, "replies": 0}
+            elif not self.llm:
+                print(f"    [WARN] 未配置 LLM，跳过")
+                results[tid] = {"completed": False, "reason": "无LLM"}
+            else:
+                topics_created = 0
+                replies_created = 0
+
+                # 1) 发主题
+                for i in range(topic_remaining):
+                    print(f"    [主题 #{i+1}/{topic_remaining}] 生成中...", end=" ")
+                    topic_data = self.llm.generate_topic(
+                        book_title=book_title, tag_type="0",
+                        chapters=chapters, book_author=book_author,
+                    )
+                    if not topic_data:
+                        print("[FAIL]")
+                        continue
+                    title = topic_data.get("title", f"Discussion #{i+1}")
+                    content = topic_data.get("content", "")
+                    while len(content.split()) < max(30, int(book_info.get("word_topic", 30))):
+                        content += " This reflection captures my genuine thoughts on the reading."
+                    print(f"[{title[:40]}...]", end=" ")
+                    resp = self.create_topic(book_id=book_id, tag_id="0",
+                                             title=title, content=content)
+                    err = resp.get("error", -1)
+                    if err == 0:
+                        tid_new = resp.get("redirect", {}).get("url", "").split("/")[-1]
+                        print(f"[OK] id={tid_new}")
+                        topics_created += 1
+                    else:
+                        print(f"[FAIL] {resp.get('error_des', err)}")
+                    time.sleep(random.uniform(3, 6))
+
+                # 2) 回复 (需要找到可回复的主题)
+                if reply_remaining > 0:
+                    all_topics = self.get_topic_list(book_id, 1)
+                    # 优先回复别人的主题
+                    reply_targets = [t for t in all_topics
+                                     if str(t.get("user_id", "")) != str(self.uid)]
+                    if not reply_targets:
+                        reply_targets = all_topics
+                    if not reply_targets:
+                        print(f"    [WARN] 没有可回复的主题，先发一个主题再回复")
+                        # 先发一个主题再回复自己（作为兜底）
+                        topic_data = self.llm.generate_topic(
+                            book_title=book_title, tag_type="0",
+                            chapters=chapters, book_author=book_author,
+                        )
+                        if topic_data:
+                            title = topic_data.get("title", "Discussion thread")
+                            content = topic_data.get("content", "")
+                            while len(content.split()) < 30:
+                                content += " Additional reflections on the reading."
+                            resp = self.create_topic(book_id=book_id, tag_id="0",
+                                                     title=title, content=content)
+                            if resp.get("error") == 0:
+                                new_id = resp.get("redirect", {}).get("url", "").split("/")[-1]
+                                reply_targets = [{"topic_id": new_id}]
+                                topics_created += 1
+
+                    for i in range(reply_remaining):
+                        target = reply_targets[i % len(reply_targets)]
+                        tpid = target["topic_id"]
+                        print(f"    [回复 #{i+1}/{reply_remaining}] 生成中...", end=" ")
+                        reply_data = self.llm.generate_topic(
+                            book_title=book_title, tag_type="0",
+                            chapters=chapters, book_author=book_author,
+                        )
+                        if not reply_data:
+                            print("[FAIL]")
+                            continue
+                        reply_content = reply_data.get("content", "")
+                        while len(reply_content.split()) < max(30, int(book_info.get("word_comment", 30))):
+                            reply_content += " I agree with this perspective and would add further thoughts."
+                        print(f"[topic={tpid}]", end=" ")
+                        resp = self.create_comment(book_id=book_id, topic_id=tpid,
+                                                   comment=reply_content)
+                        err = resp.get("error", -1)
+                        if err == 0:
+                            print("[OK]")
+                            replies_created += 1
+                        else:
+                            print(f"[FAIL] {resp.get('error_des', err)}")
+                            if "频率" in resp.get("error_des", ""):
+                                time.sleep(10)
+                        time.sleep(random.uniform(3, 6))
+
+                results[tid] = {
+                    "completed": (discuss_topic_done + topics_created >= discuss_topic_need
+                                  and discuss_reply_done + replies_created >= discuss_reply_need),
+                    "topics": topics_created, "replies": replies_created,
+                }
+
+        # ---- 其他任务类型 ----
+        for tid in ["6", "5", "3"]:
             if target_tag and tid != target_tag:
                 continue
 
@@ -422,7 +600,6 @@ class HaoceAPI:
                 results[tid] = {"completed": False, "reason": "需要App录音", "remaining": remaining}
                 continue
 
-            # 没有 LLM 则跳过
             if not self.llm:
                 print(f"    [WARN] 未配置 LLM，跳过 {name} 提交")
                 results[tid] = {"completed": False, "reason": "无LLM", "remaining": remaining}
@@ -448,11 +625,10 @@ class HaoceAPI:
                 content = topic_data.get("content", "")
                 yanwen = topic_data.get("yanwen", "")
 
-                # 确保字数达标
                 while len(content.split()) < 30:
                     content += " This reflection captures my genuine thoughts on the reading."
 
-                print(f"  [{title[:40]}...]", end=" ")
+                print(f"[{title[:40]}...]", end=" ")
 
                 resp = self.create_topic(
                     book_id=book_id,

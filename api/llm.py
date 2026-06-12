@@ -88,6 +88,24 @@ class LLMClient(ABC):
     def _parse_json_response(self, text: str, tag_type: str) -> Optional[dict]:
         """解析 LLM 返回的 JSON"""
         text = text.strip()
+
+        # 处理多行 JSON 对象（模型可能把 title 和 content 分成两个对象）
+        if '\n{' in text:
+            merged = {}
+            for line in text.split('\n'):
+                line = line.strip()
+                if line.startswith('{'):
+                    try:
+                        merged.update(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+            if merged:
+                try:
+                    self._validate(merged, tag_type)
+                    return merged
+                except ValueError:
+                    pass
+
         # 尝试直接解析
         try:
             result = json.loads(text)

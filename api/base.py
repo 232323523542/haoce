@@ -724,7 +724,7 @@ class HaoceAPI:
                                 raw = re.sub(r"\s+", " ", raw).strip()
                                 words = raw.split()
                                 if len(words) >= 80:
-                                    chunk_size = 80
+                                    chunk_size = random.randint(60, 100)
                                     # 该章会被用几次，把章节等分
                                     uses = (remaining + len(chapter_objs) - 1 - ch_idx) // len(chapter_objs)
                                     which = i // len(chapter_objs)

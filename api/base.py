@@ -278,6 +278,256 @@ class HaoceAPI:
         print(f"  [{title}] 模拟阅读完成")
         return True
 
+    # ============================================================
+    # 任务提交 (讨论、摘抄、报告、朗读)
+    # ============================================================
+
+    def create_topic(self, book_id: str, tag_id: str, title: str,
+                     content: str, yanwen: str = "",
+                     yin_data: dict = None) -> dict:
+        """
+        创建一个 topic (适用于讨论/摘抄/报告/朗读)
+
+        Args:
+            book_id: 书籍 ID
+            tag_id: 0=讨论, 3=朗读, 5=报告, 6=摘抄
+            title: 标题 (topic)
+            content: 正文内容 (topic_info)
+            yanwen: 原文 (topic_info_yanwen, 摘抄必填)
+            yin_data: 朗读音频数据 (朗读必填, {file, ext, size, name, file_md5, playtime, type, path, time})
+        """
+        word_count = len(content.split())
+        data = {
+            "book_id": book_id,
+            "tag_id": tag_id,
+            "topic": title,
+            "topic_info": content,
+            "word_cnt": str(word_count),
+            "t_id": "0",
+        }
+
+        if yanwen:
+            data["topic_info_yanwen"] = yanwen
+
+        if yin_data:
+            # yin 和 yin2 的字段（PHP array 格式）
+            for key, val in yin_data.items():
+                data[f"yin[{key}]"] = str(val)
+                data[f"yin2[{key}]"] = str(val)
+            data["audio_time"] = str(yin_data.get("time", "0"))
+
+        self.rate_limit(3.0)
+        resp = self.http.json_request(
+            f"{self.BASE_URL}/book/topicAdd",
+            data=data,
+        )
+        return resp
+
+    def add_novel_note(self, book_id: str, novel_id: str,
+                       cp_id: str, comment: str) -> dict:
+        """
+        在阅读器中添加章节笔记 (book/novel/addComment)
+        """
+        word_count = len(comment.split())
+        data = {
+            "book_id": book_id,
+            "novel_id": novel_id,
+            "cp_id": cp_id,
+            "comment": comment,
+            "comment_word": word_count,
+        }
+        self.rate_limit(3.0)
+        resp = self.http.json_request(
+            f"{self.BASE_URL}/book/novel/addComment",
+            data=data,
+        )
+        return resp
+
+    # ============================================================
+    # 自动完成任务
+    # ============================================================
+
+    # 预设模板内容
+    TEMPLATES = {
+        "0": {  # 讨论
+            "titles": [
+                "Reflections on the Reading",
+                "Thoughts on Key Themes",
+                "Character Analysis and Development",
+                "Literary Techniques and Style",
+            ],
+            "contents": [
+                "This book presents a fascinating exploration of human nature and relationships. "
+                "The author skillfully weaves together multiple narrative threads to create a compelling "
+                "story that resonates deeply with readers. The themes of love, loss, and redemption are "
+                "particularly well developed throughout the narrative. I found myself deeply moved by the "
+                "characters and their journeys. The writing style is both accessible and sophisticated.",
+
+                "The central themes in this work reveal universal truths about the human condition. "
+                "Through careful examination of the text, we can see how the author uses symbolism "
+                "and metaphor to convey deeper meanings. The interplay between characters drives the "
+                "narrative forward while illuminating important philosophical questions about life "
+                "and existence. Each chapter builds upon the last to create a cohesive whole.",
+
+                "The protagonist undergoes significant transformation throughout the story. "
+                "Starting from a place of uncertainty and doubt, the character gradually develops "
+                "self-awareness and understanding through a series of meaningful encounters and "
+                "challenges. This growth arc is one of the most compelling aspects of the book "
+                "and demonstrates the author's deep understanding of human psychology and behavior.",
+            ],
+        },
+        "6": {  # 摘抄
+            "titles": [
+                "Memorable Passage from the Book",
+                "Beautiful Prose That Caught My Eye",
+                "A Powerful Quote to Remember",
+                "Insightful Lines Worth Noting",
+            ],
+            "contents": [
+                "This passage stands out for its exceptional use of language and imagery. "
+                "The author creates a vivid scene that transports the reader directly into the "
+                "moment. The choice of words is precise and evocative, demonstrating masterful "
+                "control of the English language. This excerpt serves as an excellent example "
+                "of how descriptive prose can elevate storytelling.",
+            ],
+            "yanwen": [
+                "The words flowed like a gentle stream, carrying with them the weight of "
+                "unspoken truths and hidden meanings. Each sentence built upon the last, "
+                "creating a tapestry of ideas that revealed new patterns with every reading.",
+                "In the quiet moments between heartbeats, there existed a world of possibility "
+                "that neither of them had dared to explore. It was in these spaces that the "
+                "true nature of their connection became clear.",
+            ],
+        },
+        "5": {  # 报告
+            "titles": [
+                "Comprehensive Book Report and Analysis",
+            ],
+            "contents": [
+                "This book report provides a comprehensive analysis of the assigned reading. "
+                "The work explores several interconnected themes that contribute to its lasting "
+                "literary significance. Through detailed examination of plot structure, character "
+                "development, and thematic elements, we can appreciate the author's craftsmanship. "
+                "The narrative arc follows a well-defined trajectory from introduction through "
+                "rising action to climax and resolution. Each character serves a specific purpose "
+                "in advancing the thematic concerns of the work. The author employs various literary "
+                "devices including foreshadowing, irony, and symbolism to enrich the reading "
+                "experience. In conclusion, this book represents a significant contribution to "
+                "its genre and offers readers valuable insights into the human experience. "
+                "The themes explored remain relevant to contemporary audiences and invite "
+                "ongoing reflection and discussion. I highly recommend this work to anyone "
+                "interested in exploring profound questions about life, relationships, and society.",
+            ],
+        },
+    }
+
+    def auto_complete_tasks(self, book_id: str, target_tag: str = None) -> dict:
+        """
+        自动完成一本书的所有非朗读任务
+
+        Args:
+            book_id: 书籍 ID
+            target_tag: 只完成特定类型的任务 (None=全部)
+
+        Returns:
+            完成情况统计
+        """
+        self.rate_limit(3.0)
+        detail = self.get_book_detail(book_id)
+        if not detail:
+            return {"error": "获取书籍详情失败"}
+
+        book_info = detail.get("book", {})
+        bj = detail.get("bookJoin", {})
+        book_title = book_info.get("book", book_id)
+
+        # 各类型任务的需求和当前进度
+        tag_configs = {}
+        tag_current = {}
+        for tid in ["0", "3", "4", "5", "6", "9"]:
+            tag_configs[tid] = int(book_info.get(f"tag_{tid}_config", 0))
+            tag_current[tid] = int(bj.get(f"tag_{tid}_cnt", 0))
+
+        tag_names = {
+            "0": "讨论", "3": "朗读", "4": "重要",
+            "5": "报告", "6": "摘抄", "9": "翻译",
+        }
+        user_topic = int(book_info.get("user_topic", 0))
+
+        print(f"\n{'='*50}")
+        print(f"  自动完成任务: {book_title}")
+        print(f"{'='*50}")
+
+        results = {}
+
+        for tid in ["0", "6", "5", "3"]:
+            if target_tag and tid != target_tag:
+                continue
+
+            name = tag_names.get(tid, tid)
+            needed = tag_configs[tid]
+            current = tag_current[tid]
+            remaining = max(0, needed - current)
+
+            print(f"\n  [{name}] 需要 {needed}, 当前 {current}, 待补 {remaining}")
+
+            if remaining <= 0:
+                print(f"    [OK] 已完成")
+                results[tid] = {"completed": True, "created": 0}
+                continue
+
+            if tid == "3":
+                print(f"    [WARN] 朗读需要手机 App 录音上传，无法自动完成")
+                print(f"    请使用好策 App 朗读 {remaining} 次")
+                results[tid] = {"completed": False, "reason": "需要App录音", "remaining": remaining}
+                continue
+
+            # 获取模板
+            templates = self.TEMPLATES.get(tid, self.TEMPLATES["0"])
+            created = 0
+
+            for i in range(remaining):
+                title_idx = i % len(templates["titles"])
+                content_idx = i % len(templates["contents"])
+
+                title = f"{templates['titles'][title_idx]} #{i+1}"
+                content = templates["contents"][content_idx]
+                yanwen = ""
+                if tid == "6" and "yanwen" in templates:
+                    yanwen = templates["yanwen"][i % len(templates["yanwen"])]
+
+                # 确保字数达标（讨论需要≥30词）
+                while len(content.split()) < 30:
+                    content += " Additional thoughtful reflection on the reading material."
+
+                print(f"    创建 {name} #{i+1}: {title[:50]}...", end=" ")
+
+                resp = self.create_topic(
+                    book_id=book_id,
+                    tag_id=tid,
+                    title=title,
+                    content=content,
+                    yanwen=yanwen,
+                )
+
+                err = resp.get("error", -1)
+                if err == 0:
+                    topic_id = resp.get("redirect", {}).get("url", "").split("/")[-1]
+                    print(f"[OK] (id={topic_id})")
+                    created += 1
+                else:
+                    err_msg = resp.get("error_des", str(err))
+                    print(f"[FAIL] {err_msg}")
+                    if "频率" in err_msg:
+                        time.sleep(10)
+
+                time.sleep(random.uniform(3, 6))
+
+            results[tid] = {"completed": created >= remaining, "created": created}
+
+        print(f"\n  [{book_title}] 任务处理完毕")
+        return results
+
     def simulate_pdf_reading(self, book: dict, minutes: int = 30) -> bool:
         """
         模拟 PDF 类型书籍的阅读

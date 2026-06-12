@@ -1,10 +1,17 @@
 # -*- coding: utf-8 -*-
 """
 好策(HaoCe) 阅读平台自动阅读脚本
-支持 novel 类型书籍的自动阅读（模拟翻页 + 上报阅读时长）
+支持:
+  - novel 类型书籍自动阅读（模拟翻页 + 上报阅读时长）
+  - 讨论、摘抄、报告 任务自动提交
+  - 朗读任务需手机 App 录音（无法自动完成）
 """
 import configparser
+import io
 import sys
+
+# 修复 Windows 控制台 GBK 编码问题
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 import time
 import traceback
 
@@ -23,6 +30,8 @@ def parse_config(config_path: str) -> dict:
         "min_interval": 3.0,
         "book_list": None,
         "only_unfinished": True,
+        "skip_reading": False,
+        "skip_tasks": False,
     }
 
     if config.has_section("account"):
@@ -36,6 +45,8 @@ def parse_config(config_path: str) -> dict:
         if book_list_str:
             cfg["book_list"] = [b.strip() for b in book_list_str.split(",") if b.strip()]
         cfg["only_unfinished"] = config.getboolean("reading", "only_unfinished", fallback=True)
+        cfg["skip_reading"] = config.getboolean("reading", "skip_reading", fallback=False)
+        cfg["skip_tasks"] = config.getboolean("reading", "skip_tasks", fallback=False)
 
     return cfg
 
@@ -114,37 +125,37 @@ def main():
     for book in target_books:
         merge = book.get("book_id_merge", {})
         title = merge.get("book", "未知")
+        book_id = book["book_id"]
 
         try:
-            # 先尝试 novel 模式
-            detail = api.get_book_detail(book["book_id"])
+            detail = api.get_book_detail(book_id)
             book_info = detail.get("book", {})
             isbn = book_info.get("isbn", {}) or {}
             novel_id = isbn.get("novel_id", 0)
 
-            if novel_id and int(novel_id) > 0:
+            # Step 1: 模拟阅读
+            if not cfg["skip_reading"] and novel_id and int(novel_id) > 0:
                 api.simulate_reading(
                     book,
                     duration_per_chapter=cfg["duration_per_chapter"],
                     min_interval=cfg["min_interval"],
                 )
-            else:
-                # PDF 模式
+            elif not novel_id or int(novel_id) <= 0:
                 pdf_file = book_info.get("book_pdf", "")
                 if pdf_file:
-                    print(f"\n[{title}] PDF 类型书籍")
-                    print(f"  PDF: {pdf_file}")
-                    print(f"  PDF 阅读进度上报 API 待进一步逆向研究")
-                    print(f"  提示: PDF 书籍通过 apppdf.haoce.com 的 PDF.js 查看器阅读")
+                    print(f"\n[{title}] PDF 类型书籍, 阅读进度 API 待研究")
                 else:
-                    print(f"\n[{title}] 未知类型书籍, 跳过")
+                    print(f"\n[{title}] 未知类型书籍")
+
+            # Step 2: 自动完成任务（讨论、摘抄、报告）
+            if not cfg["skip_tasks"]:
+                api.auto_complete_tasks(book_id)
 
         except Exception as e:
             print(f"\n[{title}] 处理出错: {e}")
             traceback.print_exc()
             continue
 
-        # 书与书之间的间隔
         time.sleep(3)
 
     print("\n" + "=" * 50)

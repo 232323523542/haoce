@@ -718,6 +718,9 @@ class HaoceAPI:
                             self.rate_limit(1.5)
                             ch_content = self.get_chapter_content(
                                 ch_info["cp_id"], novel_meta, book_id)
+                            has_text = isinstance(ch_content, dict) and ch_content.get("text")
+                            if not has_text:
+                                print(f"(章节{ch_info['cp_id']}无内容)", end=" ", flush=True)
                             if isinstance(ch_content, dict) and ch_content.get("text"):
                                 raw = ch_content["text"]
                                 raw = re.sub(r"<[^>]+>", "", raw)

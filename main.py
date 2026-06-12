@@ -4,6 +4,7 @@
 """
 import configparser
 import io
+import os
 import sys
 import time
 import traceback
@@ -25,9 +26,13 @@ def input_str(prompt: str) -> str:
 def load_config(path: str = "config.ini") -> dict:
     c = configparser.ConfigParser()
     c.read(path, encoding="utf-8")
-    cfg = {"phone": "", "password": "", "skip_reading": False,
-           "llm_backend": "ollama", "llm_model": "qwen2.5:7b",
-           "llm_base_url": "http://localhost:11434/v1", "llm_api_key": ""}
+    cfg = {
+        "phone": "", "password": "", "skip_reading": False,
+        "llm_backend": "ollama", "llm_model": "qwen2.5:7b",
+        "llm_base_url": "http://localhost:11434", "llm_api_key": "",
+        "tts_backend": "", "tts_api_key": "", "tts_base_url": "",
+        "tts_model_path": "", "tts_ffmpeg_path": "",
+    }
     if c.has_section("account"):
         cfg["phone"] = c.get("account", "phone", fallback="").strip()
         cfg["password"] = c.get("account", "password", fallback="").strip()
@@ -36,8 +41,101 @@ def load_config(path: str = "config.ini") -> dict:
     if c.has_section("llm"):
         cfg["llm_backend"] = c.get("llm", "backend", fallback="ollama").strip()
         cfg["llm_model"] = c.get("llm", "model", fallback="qwen2.5:7b").strip()
-        cfg["llm_base_url"] = c.get("llm", "base_url", fallback="http://localhost:11434/v1").strip()
+        cfg["llm_base_url"] = c.get("llm", "base_url", fallback="http://localhost:11434").strip()
         cfg["llm_api_key"] = c.get("llm", "api_key", fallback="").strip()
+    if c.has_section("tts"):
+        cfg["tts_backend"] = c.get("tts", "backend", fallback="").strip()
+        cfg["tts_api_key"] = c.get("tts", "api_key", fallback="").strip()
+        cfg["tts_base_url"] = c.get("tts", "base_url", fallback="").strip()
+        cfg["tts_model_path"] = c.get("tts", "model_path", fallback="").strip()
+        cfg["tts_ffmpeg_path"] = c.get("tts", "ffmpeg_path", fallback="").strip()
+    return cfg
+
+
+def save_config(cfg: dict, path: str = "config.ini"):
+    """保存配置到文件"""
+    c = configparser.ConfigParser()
+    c["account"] = {"phone": cfg["phone"], "password": cfg["password"]}
+    c["reading"] = {
+        "duration_per_chapter": "120",
+        "min_interval": "3",
+    }
+    c["llm"] = {
+        "backend": cfg["llm_backend"],
+        "model": cfg["llm_model"],
+        "base_url": cfg["llm_base_url"],
+        "api_key": cfg["llm_api_key"],
+    }
+    c["tts"] = {
+        "backend": cfg["tts_backend"],
+        "api_key": cfg["tts_api_key"],
+        "base_url": cfg["tts_base_url"],
+        "model_path": cfg["tts_model_path"],
+        "ffmpeg_path": cfg["tts_ffmpeg_path"],
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        c.write(f)
+    print(f"配置已保存到 {path}")
+
+
+def setup_wizard() -> dict:
+    """首次运行引导"""
+    cfg = load_config("")
+
+    print("=" * 50)
+    print("好策自动阅读 v1.0 — 首次配置")
+    print("=" * 50)
+
+    # 1) LLM
+    print("\n[1/3] LLM 后端 (讨论/摘抄/报告):")
+    print("  [1] OpenAI 兼容 API (推荐，需API Key)")
+    print("  [2] 本地 Ollama (免费，需自行安装模型)")
+    print("  [3] 跳过 (不提交讨论/摘抄/报告)")
+    while True:
+        s = input_str("选择 (1-3): ")
+        if s == "1":
+            cfg["llm_backend"] = "openai"
+            cfg["llm_api_key"] = input_str("API Key: ")
+            cfg["llm_base_url"] = input_str("API 地址 [https://api.openai.com/v1]: ") or "https://api.openai.com/v1"
+            cfg["llm_model"] = input_str("模型名 [gpt-4o]: ") or "gpt-4o"
+            break
+        elif s == "2":
+            cfg["llm_backend"] = "ollama"
+            cfg["llm_base_url"] = input_str("Ollama 地址 [http://localhost:11434]: ") or "http://localhost:11434"
+            cfg["llm_model"] = input_str("模型名 [qwen2.5:7b]: ") or "qwen2.5:7b"
+            break
+        elif s == "3":
+            cfg["llm_backend"] = "none"
+            break
+        print("无效")
+
+    # 2) TTS
+    print("\n[2/3] TTS 后端 (朗读配音):")
+    print("  [1] TTS API (需提供 API Key 和接口地址)")
+    print("  [2] 本地 TTS (免费，需 NVIDIA 显卡 4GB+ 显存)")
+    print("  [3] 跳过 (不提交朗读任务)")
+    while True:
+        s = input_str("选择 (1-3): ")
+        if s == "1":
+            cfg["tts_backend"] = "api"
+            cfg["tts_api_key"] = input_str("TTS API Key: ")
+            cfg["tts_base_url"] = input_str("TTS API 地址 [https://api.openai.com/v1]: ") or "https://api.openai.com/v1"
+            break
+        elif s == "2":
+            cfg["tts_backend"] = "qwen"
+            cfg["tts_model_path"] = input_str("模型路径 (回车用默认): ") or ""
+            break
+        elif s == "3":
+            cfg["tts_backend"] = "none"
+            break
+        print("无效")
+
+    # 3) 账号
+    print("\n[3/3] 好策账号:")
+    cfg["phone"] = input_str("手机号: ")
+    cfg["password"] = input_str("密码: ")
+
+    save_config(cfg)
     return cfg
 
 
@@ -54,10 +152,16 @@ def parse_discuss_req(desc: str):
 
 
 def main():
-    cfg = load_config()
+    if not os.path.exists("config.ini"):
+        cfg = setup_wizard()
+        print("\n按回车开始使用...")
+        input()
+    else:
+        cfg = load_config()
 
-    print("=" * 40)
+    print("\n" + "=" * 40)
     print("好策自动阅读")
+    print("=" * 40)
 
     # 账号
     saved_phone = cfg["phone"]
@@ -79,6 +183,16 @@ def main():
     llm = create_llm_client(backend=cfg["llm_backend"], model=cfg["llm_model"],
                             base_url=cfg["llm_base_url"], api_key=cfg["llm_api_key"])
     api = HaoceAPI(HaoceAccount(phone, password), llm_client=llm)
+    # 透传完整 TTS 配置
+    api.config = {
+        "tts": {
+            "backend": cfg["tts_backend"],
+            "api_key": cfg["tts_api_key"],
+            "base_url": cfg["tts_base_url"],
+            "model_path": cfg["tts_model_path"],
+            "ffmpeg_path": cfg["tts_ffmpeg_path"],
+        }
+    }
 
     print("\n登录中...")
     if not api.login(): print("登录失败"); sys.exit(1)

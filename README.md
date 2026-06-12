@@ -62,7 +62,7 @@ ollama
 
 ## 免责
 
-仅供学习，用了后果自负。
+本内容100%由ai生成，建议搭配claude code等ai编助手使用，仅供学习
 
 ## License
 

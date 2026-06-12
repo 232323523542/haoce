@@ -568,8 +568,8 @@ class HaoceAPI:
                     novel = novel_data.get("novel", {})
                     chapter_objs = novel.get("chapter", [])[:10]
                     chapters = [ch.get("chapter", "") for ch in chapter_objs]
-            except Exception as e:
-                print(f"    [WARN] 获取章节列表失败: {e}")
+            except Exception:
+                pass
 
         results = {}
 
@@ -703,7 +703,6 @@ class HaoceAPI:
                     results[tid] = {"completed": False, "reason": "无LLM", "remaining": remaining}
                     continue
 
-                print(f"    可用章节: {len(chapter_objs)}")
                 created = 0
                 for i in range(remaining):
                     try:
@@ -718,31 +717,20 @@ class HaoceAPI:
                             self.rate_limit(1.5)
                             ch_content = self.get_chapter_content(
                                 ch_info["cp_id"], novel_meta, book_id)
-                            has_text = isinstance(ch_content, dict) and ch_content.get("text")
-                            if not has_text:
-                                print(f"(章节{ch_info['cp_id']}无内容)", end=" ", flush=True)
                             if isinstance(ch_content, dict) and ch_content.get("text"):
                                 raw = ch_content["text"]
                                 raw = re.sub(r"<[^>]+>", "", raw)
                                 raw = re.sub(r"[一-鿿　-〿＀-￯]+", " ", raw)
                                 raw = re.sub(r"\s+", " ", raw).strip()
-                                sentences = re.split(r'(?<=[.!?])\s+', raw)
-                                sentences = [s.strip() for s in sentences if s.strip()]
-                                if len(sentences) >= 3:
+                                words = raw.split()
+                                if len(words) >= 50:
+                                    # 同一章多次朗读时取不同位置
                                     round_in_chapter = i // len(chapter_objs)
-                                    step = max(1, len(sentences) // (remaining + 1))
-                                    start = (round_in_chapter * step * 3) % len(sentences)
-                                    picked = []
-                                    wc = 0
-                                    for s in sentences[start:]:
-                                        picked.append(s)
-                                        wc += len(s.split())
-                                        if wc >= 60:
-                                            break
-                                    if wc >= 30:
-                                        passage = " ".join(picked)
-                                        passage_title = ch_content.get("title") or ch_info.get("chapter", passage_title)
-                                        ch_label = ch_info.get("chapter", "")[:15]
+                                    chunk_size = 80
+                                    start = (round_in_chapter * chunk_size * 3) % max(1, len(words) - chunk_size)
+                                    passage = " ".join(words[start:start + chunk_size])
+                                    passage_title = ch_content.get("title") or ch_info.get("chapter", passage_title)
+                                    ch_label = ch_info.get("chapter", "")[:15]
 
                         if not passage:
                             topic_data = self.llm.generate_reading_passage(

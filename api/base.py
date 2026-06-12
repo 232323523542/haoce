@@ -579,7 +579,7 @@ class HaoceAPI:
                 novel_data = self.get_novel_info(novel_id, book_id)
                 if novel_data:
                     novel = novel_data.get("novel", {})
-                    chapter_objs = novel.get("chapter", [])[:10]
+                    chapter_objs = novel.get("chapter", [])
                     chapters = [ch.get("chapter", "") for ch in chapter_objs]
             except Exception:
                 pass
@@ -802,8 +802,7 @@ class HaoceAPI:
                                 ch_info["cp_id"], novel_meta, book_id)
                             if isinstance(ch_content, dict) and ch_content.get("paragraphs"):
                                 paras = ch_content["paragraphs"]
-                                p_idx = (ch_idx + i) % len(paras) if paras else 0
-                                p = paras[p_idx]
+                                p = random.choice(paras)
                                 sentences = re.split(r'(?<=[.!?])\s+', p)
                                 # 拣足够句子的段落，不够则合并后续段落
                                 combined_sents = list(sentences)

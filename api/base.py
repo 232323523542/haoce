@@ -732,12 +732,18 @@ class HaoceAPI:
                                 p_idx = (ch_idx + i) % len(paras) if paras else 0
                                 p = paras[p_idx]
                                 words = p.split()
-                                if len(words) >= 50:
-                                    # 如果段落太长，截到 60-100 词
-                                    limit = random.randint(60, 100)
+                                if len(words) >= 60:
+                                    # 截到 60-100 词
+                                    limit = random.randint(60, min(100, len(words)))
                                     passage = " ".join(words[:limit])
                                 else:
-                                    passage = p
+                                    # 段落太短，补后续段落凑够 60 词
+                                    combined = list(words)
+                                    j = p_idx + 1
+                                    while len(combined) < 60 and j < len(paras):
+                                        combined.extend(paras[j].split())
+                                        j += 1
+                                    passage = " ".join(combined[:random.randint(60, 100)])
                                 passage_title = ch_content.get("title") or ch_info.get("chapter", passage_title)
                                 ch_label = ch_info.get("chapter", "")[:15]
 

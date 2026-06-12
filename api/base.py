@@ -819,7 +819,7 @@ class HaoceAPI:
                                 target = random.randint(60, 100)
                                 for s in combined_sents:
                                     sw = len(s.split())
-                                    if wc + sw > target and wc >= 50:
+                                    if wc + sw > target and wc >= 60:
                                         break
                                     selected.append(s)
                                     wc += sw

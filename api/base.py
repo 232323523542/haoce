@@ -53,9 +53,10 @@ class HaoceAPI:
 
     BASE_URL = "https://www.haoce.com"
 
-    def __init__(self, account: HaoceAccount):
+    def __init__(self, account: HaoceAccount, llm_client=None):
         self.account = account
         self.http = HaoceSession()
+        self.llm = llm_client  # LLM 客户端（可选）
         self.uid: Optional[str] = None
         self.name: Optional[str] = None
         self._rate_last = 0.0
@@ -347,83 +348,9 @@ class HaoceAPI:
     # 自动完成任务
     # ============================================================
 
-    # 预设模板内容
-    TEMPLATES = {
-        "0": {  # 讨论
-            "titles": [
-                "Reflections on the Reading",
-                "Thoughts on Key Themes",
-                "Character Analysis and Development",
-                "Literary Techniques and Style",
-            ],
-            "contents": [
-                "This book presents a fascinating exploration of human nature and relationships. "
-                "The author skillfully weaves together multiple narrative threads to create a compelling "
-                "story that resonates deeply with readers. The themes of love, loss, and redemption are "
-                "particularly well developed throughout the narrative. I found myself deeply moved by the "
-                "characters and their journeys. The writing style is both accessible and sophisticated.",
-
-                "The central themes in this work reveal universal truths about the human condition. "
-                "Through careful examination of the text, we can see how the author uses symbolism "
-                "and metaphor to convey deeper meanings. The interplay between characters drives the "
-                "narrative forward while illuminating important philosophical questions about life "
-                "and existence. Each chapter builds upon the last to create a cohesive whole.",
-
-                "The protagonist undergoes significant transformation throughout the story. "
-                "Starting from a place of uncertainty and doubt, the character gradually develops "
-                "self-awareness and understanding through a series of meaningful encounters and "
-                "challenges. This growth arc is one of the most compelling aspects of the book "
-                "and demonstrates the author's deep understanding of human psychology and behavior.",
-            ],
-        },
-        "6": {  # 摘抄
-            "titles": [
-                "Memorable Passage from the Book",
-                "Beautiful Prose That Caught My Eye",
-                "A Powerful Quote to Remember",
-                "Insightful Lines Worth Noting",
-            ],
-            "contents": [
-                "This passage stands out for its exceptional use of language and imagery. "
-                "The author creates a vivid scene that transports the reader directly into the "
-                "moment. The choice of words is precise and evocative, demonstrating masterful "
-                "control of the English language. This excerpt serves as an excellent example "
-                "of how descriptive prose can elevate storytelling.",
-            ],
-            "yanwen": [
-                "The words flowed like a gentle stream, carrying with them the weight of "
-                "unspoken truths and hidden meanings. Each sentence built upon the last, "
-                "creating a tapestry of ideas that revealed new patterns with every reading.",
-                "In the quiet moments between heartbeats, there existed a world of possibility "
-                "that neither of them had dared to explore. It was in these spaces that the "
-                "true nature of their connection became clear.",
-            ],
-        },
-        "5": {  # 报告
-            "titles": [
-                "Comprehensive Book Report and Analysis",
-            ],
-            "contents": [
-                "This book report provides a comprehensive analysis of the assigned reading. "
-                "The work explores several interconnected themes that contribute to its lasting "
-                "literary significance. Through detailed examination of plot structure, character "
-                "development, and thematic elements, we can appreciate the author's craftsmanship. "
-                "The narrative arc follows a well-defined trajectory from introduction through "
-                "rising action to climax and resolution. Each character serves a specific purpose "
-                "in advancing the thematic concerns of the work. The author employs various literary "
-                "devices including foreshadowing, irony, and symbolism to enrich the reading "
-                "experience. In conclusion, this book represents a significant contribution to "
-                "its genre and offers readers valuable insights into the human experience. "
-                "The themes explored remain relevant to contemporary audiences and invite "
-                "ongoing reflection and discussion. I highly recommend this work to anyone "
-                "interested in exploring profound questions about life, relationships, and society.",
-            ],
-        },
-    }
-
     def auto_complete_tasks(self, book_id: str, target_tag: str = None) -> dict:
         """
-        自动完成一本书的所有非朗读任务
+        自动完成一本书的所有非朗读任务（使用 LLM 生成内容）
 
         Args:
             book_id: 书籍 ID
@@ -440,6 +367,7 @@ class HaoceAPI:
         book_info = detail.get("book", {})
         bj = detail.get("bookJoin", {})
         book_title = book_info.get("book", book_id)
+        book_author = book_info.get("author", "")
 
         # 各类型任务的需求和当前进度
         tag_configs = {}
@@ -452,11 +380,23 @@ class HaoceAPI:
             "0": "讨论", "3": "朗读", "4": "重要",
             "5": "报告", "6": "摘抄", "9": "翻译",
         }
-        user_topic = int(book_info.get("user_topic", 0))
 
         print(f"\n{'='*50}")
         print(f"  自动完成任务: {book_title}")
         print(f"{'='*50}")
+
+        # 获取章节信息（供 LLM 参考）
+        chapters = []
+        isbn = book_info.get("isbn", {}) or {}
+        novel_id = str(isbn.get("novel_id", 0))
+        if novel_id and int(novel_id) > 0:
+            try:
+                novel_data = self.get_novel_info(novel_id, book_id)
+                if novel_data:
+                    novel = novel_data.get("novel", {})
+                    chapters = [ch.get("chapter", "") for ch in novel.get("chapter", [])[:10]]
+            except Exception:
+                pass
 
         results = {}
 
@@ -482,25 +422,37 @@ class HaoceAPI:
                 results[tid] = {"completed": False, "reason": "需要App录音", "remaining": remaining}
                 continue
 
-            # 获取模板
-            templates = self.TEMPLATES.get(tid, self.TEMPLATES["0"])
+            # 没有 LLM 则跳过
+            if not self.llm:
+                print(f"    [WARN] 未配置 LLM，跳过 {name} 提交")
+                results[tid] = {"completed": False, "reason": "无LLM", "remaining": remaining}
+                continue
+
             created = 0
 
             for i in range(remaining):
-                title_idx = i % len(templates["titles"])
-                content_idx = i % len(templates["contents"])
+                print(f"    [{name} #{i+1}/{remaining}] 生成中...", end=" ")
 
-                title = f"{templates['titles'][title_idx]} #{i+1}"
-                content = templates["contents"][content_idx]
-                yanwen = ""
-                if tid == "6" and "yanwen" in templates:
-                    yanwen = templates["yanwen"][i % len(templates["yanwen"])]
+                topic_data = self.llm.generate_topic(
+                    book_title=book_title,
+                    tag_type=tid,
+                    chapters=chapters,
+                    book_author=book_author,
+                )
 
-                # 确保字数达标（讨论需要≥30词）
+                if not topic_data:
+                    print("[FAIL] LLM 生成失败")
+                    continue
+
+                title = topic_data.get("title", f"{name} #{i+1}")
+                content = topic_data.get("content", "")
+                yanwen = topic_data.get("yanwen", "")
+
+                # 确保字数达标
                 while len(content.split()) < 30:
-                    content += " Additional thoughtful reflection on the reading material."
+                    content += " This reflection captures my genuine thoughts on the reading."
 
-                print(f"    创建 {name} #{i+1}: {title[:50]}...", end=" ")
+                print(f"  [{title[:40]}...]", end=" ")
 
                 resp = self.create_topic(
                     book_id=book_id,

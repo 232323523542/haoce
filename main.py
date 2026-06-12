@@ -16,6 +16,7 @@ import time
 import traceback
 
 from api.base import HaoceAPI, HaoceAccount
+from api.llm import create_llm_client
 
 
 def parse_config(config_path: str) -> dict:
@@ -32,6 +33,11 @@ def parse_config(config_path: str) -> dict:
         "only_unfinished": True,
         "skip_reading": False,
         "skip_tasks": False,
+        # LLM 配置
+        "llm_backend": "ollama",
+        "llm_model": "qwen2.5:7b",
+        "llm_base_url": "http://localhost:11434/v1",
+        "llm_api_key": "",
     }
 
     if config.has_section("account"):
@@ -47,6 +53,12 @@ def parse_config(config_path: str) -> dict:
         cfg["only_unfinished"] = config.getboolean("reading", "only_unfinished", fallback=True)
         cfg["skip_reading"] = config.getboolean("reading", "skip_reading", fallback=False)
         cfg["skip_tasks"] = config.getboolean("reading", "skip_tasks", fallback=False)
+
+    if config.has_section("llm"):
+        cfg["llm_backend"] = config.get("llm", "backend", fallback="ollama").strip()
+        cfg["llm_model"] = config.get("llm", "model", fallback="qwen2.5:7b").strip()
+        cfg["llm_base_url"] = config.get("llm", "base_url", fallback="http://localhost:11434/v1").strip()
+        cfg["llm_api_key"] = config.get("llm", "api_key", fallback="").strip()
 
     return cfg
 
@@ -67,7 +79,20 @@ def main():
     print("好策阅读平台 - 自动阅读脚本")
     print("=" * 50)
 
-    api = HaoceAPI(HaoceAccount(cfg["phone"], cfg["password"]))
+    # 初始化 LLM 客户端
+    llm_client = None
+    if not cfg["skip_tasks"]:
+        llm_client = create_llm_client(
+            backend=cfg["llm_backend"],
+            model=cfg["llm_model"],
+            base_url=cfg["llm_base_url"],
+            api_key=cfg["llm_api_key"],
+        )
+        if llm_client:
+            print(f"LLM: {cfg['llm_backend']}/{cfg['llm_model']}")
+
+    api = HaoceAPI(HaoceAccount(cfg["phone"], cfg["password"]),
+                   llm_client=llm_client)
 
     # 登录
     print("\n正在登录...")

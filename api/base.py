@@ -611,18 +611,29 @@ class HaoceAPI:
                     # 拉一章真实原文段落，让讨论内容引用具体情节
                     passage = ""
                     if chapter_objs and novel_id and novel_data:
-                        ch_idx = i % len(chapter_objs)
-                        ch_info = chapter_objs[ch_idx]
-                        novel_meta = novel_data.get("novel", {}).get("novel", {})
-                        self.rate_limit(1.5)
-                        ch_content = self.get_chapter_content(
-                            ch_info["cp_id"], novel_meta, book_id)
-                        if ch_content.get("paragraphs"):
-                            paras = ch_content["paragraphs"]
-                            p = paras[(ch_idx + i) % len(paras)]
-                            words = p.split()
-                            limit = random.randint(60, min(100, len(words)))
-                            passage = " ".join(words[:limit])
+                        try:
+                            ch_idx = i % len(chapter_objs)
+                            ch_info = chapter_objs[ch_idx]
+                            novel_meta = novel_data.get("novel", {}).get("novel", {})
+                            self.rate_limit(1.5)
+                            ch_content = self.get_chapter_content(
+                                ch_info["cp_id"], novel_meta, book_id)
+                            if ch_content.get("paragraphs"):
+                                paras = ch_content["paragraphs"]
+                                p = paras[(ch_idx + i) % len(paras)]
+                                words = p.split()
+                                if len(words) >= 60:
+                                    limit = random.randint(60, min(100, len(words)))
+                                    passage = " ".join(words[:limit])
+                                else:
+                                    combined = list(words)
+                                    j = (ch_idx + i) % len(paras) + 1
+                                    while len(combined) < 60 and j < len(paras):
+                                        combined.extend(paras[j].split())
+                                        j += 1
+                                    passage = " ".join(combined[:random.randint(60, 100)])
+                        except Exception:
+                            pass
 
                     print(f"    [主题 #{i+1}/{topic_remaining}] 生成中...", end=" ")
                     topic_data = self.llm.generate_topic(
@@ -662,13 +673,16 @@ class HaoceAPI:
                         # 先发一个主题再回复自己（作为兜底）
                         fallback_passage = ""
                         if chapter_objs and novel_id and novel_data:
-                            fc = chapter_objs[0]
-                            fm = novel_data.get("novel", {}).get("novel", {})
-                            self.rate_limit(1.5)
-                            fcc = self.get_chapter_content(fc["cp_id"], fm, book_id)
-                            if fcc.get("paragraphs"):
-                                fw = fcc["paragraphs"][0].split()
-                                fallback_passage = " ".join(fw[:80])
+                            try:
+                                fc = chapter_objs[0]
+                                fm = novel_data.get("novel", {}).get("novel", {})
+                                self.rate_limit(1.5)
+                                fcc = self.get_chapter_content(fc["cp_id"], fm, book_id)
+                                if fcc.get("paragraphs"):
+                                    fw = fcc["paragraphs"][0].split()
+                                    fallback_passage = " ".join(fw[:min(80, len(fw))])
+                            except Exception:
+                                pass
                         topic_data = self.llm.generate_topic(
                             book_title=book_title, tag_type="0",
                             chapters=chapters, book_author=book_author,
@@ -694,18 +708,29 @@ class HaoceAPI:
                         # 拉一章真实原文段落，让回复引用具体内容
                         passage = ""
                         if chapter_objs and novel_id and novel_data:
-                            ch_idx = i % len(chapter_objs)
-                            ch_info = chapter_objs[ch_idx]
-                            novel_meta = novel_data.get("novel", {}).get("novel", {})
-                            self.rate_limit(1.5)
-                            ch_content = self.get_chapter_content(
-                                ch_info["cp_id"], novel_meta, book_id)
-                            if ch_content.get("paragraphs"):
-                                paras = ch_content["paragraphs"]
-                                p = paras[(ch_idx + i) % len(paras)]
-                                words = p.split()
-                                limit = random.randint(40, min(80, len(words)))
-                                passage = " ".join(words[:limit])
+                            try:
+                                ch_idx = i % len(chapter_objs)
+                                ch_info = chapter_objs[ch_idx]
+                                novel_meta = novel_data.get("novel", {}).get("novel", {})
+                                self.rate_limit(1.5)
+                                ch_content = self.get_chapter_content(
+                                    ch_info["cp_id"], novel_meta, book_id)
+                                if ch_content.get("paragraphs"):
+                                    paras = ch_content["paragraphs"]
+                                    p = paras[(ch_idx + i) % len(paras)]
+                                    words = p.split()
+                                    if len(words) >= 40:
+                                        limit = random.randint(40, min(80, len(words)))
+                                        passage = " ".join(words[:limit])
+                                    else:
+                                        combined = list(words)
+                                        j = (ch_idx + i) % len(paras) + 1
+                                        while len(combined) < 40 and j < len(paras):
+                                            combined.extend(paras[j].split())
+                                            j += 1
+                                        passage = " ".join(combined[:random.randint(40, 80)])
+                            except Exception:
+                                pass
 
                         print(f"    [回复 #{i+1}/{reply_remaining}] 生成中...", end=" ")
                         reply_content = self.llm.generate_reply(

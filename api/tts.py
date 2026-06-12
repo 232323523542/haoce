@@ -52,6 +52,7 @@ def _wav_to_amr(wav_path: str, output_path: str) -> bool:
     try:
         subprocess.run([
             _FFMPEG, "-i", wav_path,
+            "-af", "volume=3.0",
             "-ar", "8000", "-ac", "1",
             "-c:a", "libopencore_amrnb", "-b:a", "12.2k",
             output_path, "-y",

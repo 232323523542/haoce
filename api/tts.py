@@ -63,6 +63,23 @@ def _wav_to_amr(wav_path: str, output_path: str) -> bool:
         return False
 
 
+def _wav_to_mp3(wav_path: str, output_path: str) -> bool:
+    """用 ffmpeg 将 WAV 转为 MP3 (44.1kHz, mono, 128kbps)"""
+    if not os.path.exists(_FFMPEG):
+        return False
+    try:
+        subprocess.run([
+            _FFMPEG, "-i", wav_path,
+            "-af", "volume=3.0",
+            "-ar", "44100", "-ac", "1",
+            "-c:a", "libmp3lame", "-b:a", "128k",
+            output_path, "-y",
+        ], check=True, capture_output=True, timeout=120)
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
 def generate_reading_audio(text: str, voice_instruct: str = "natural young male voice",
                            model_path: str = None):
     """
@@ -86,21 +103,27 @@ def generate_reading_audio(text: str, voice_instruct: str = "natural young male 
         except Exception as e:
             print(f"    [TTS] Generate failed: {e}")
 
-    # WAV → AMR 转换
+    # WAV → MP3 / AMR 转换
+    mp3_path = "C:/tmp/tts_reading.mp3"
     amr_path = "C:/tmp/tts_reading.amr"
+    mp3_data = None
+    amr_data = None
+
     if wav_path and os.path.exists(wav_path) and os.path.exists(_FFMPEG):
+        if _wav_to_mp3(wav_path, mp3_path):
+            with open(mp3_path, "rb") as f:
+                mp3_data = f.read()
+            print(f"    [TTS] MP3 ({len(mp3_data)} bytes)")
         if _wav_to_amr(wav_path, amr_path):
             with open(amr_path, "rb") as f:
-                amr = f.read()
-            print(f"    [TTS] AMR converted ({len(amr)} bytes)")
-            return amr, wav_path
-        else:
-            print(f"    [TTS] AMR conversion failed, using fallback")
+                amr_data = f.read()
 
-    # 兜底: 生成静音 AMR (避免上传失败)
-    print(f"    [TTS] WARNING: using silence AMR fallback")
-    amr = _make_silence_amr()
-    return amr, wav_path
+    if mp3_data or amr_data:
+        return mp3_data, amr_data, wav_path
+
+    # 兜底
+    print(f"    [TTS] WARNING: using silence fallback")
+    return None, _make_silence_amr(), wav_path
 
 
 def _make_silence_amr(duration_sec: int = 30) -> bytes:

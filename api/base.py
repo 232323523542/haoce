@@ -424,13 +424,19 @@ class HaoceAPI:
 
         word_cnt = len(text.split())
 
+        mp3_data = None
         if amr_data is None:
-            amr_data, _ = generate_reading_audio(text, voice_instruct=voice)
+            mp3_data, amr_data, _ = generate_reading_audio(text, voice_instruct=voice)
+
+        # 优先 MP3 高清格式，失败再 AMR
+        audio_bytes = mp3_data or amr_data
+        ext = "mp3" if mp3_data else "amr"
+        mime = "audio/mpeg" if mp3_data else "audio/amr"
 
         try:
             resp = self.http.session.post(
                 f"{self.BASE_URL}/book/topicAdd/tag3",
-                files={"file": ("reading.amr", amr_data, "audio/amr")},
+                files={"file": (f"reading.{ext}", audio_bytes, mime)},
                 data={
                     "book_id": book_id,
                     "tag_id": "3",

@@ -534,8 +534,10 @@ class HaoceAPI:
         Returns:
             完成情况统计
         """
+        print("  [加载] 获取书籍详情...", end=" ", flush=True)
         self.rate_limit(3.0)
         detail = self.get_book_detail(book_id)
+        print("OK", flush=True)
         if not detail:
             return {"error": "获取书籍详情失败"}
 
@@ -576,6 +578,7 @@ class HaoceAPI:
         novel_data = None
         if novel_id and int(novel_id) > 0:
             try:
+                print("  [加载] 获取章节列表...", end=" ", flush=True)
                 novel_data = self.get_novel_info(novel_id, book_id)
                 if novel_data:
                     novel = novel_data.get("novel", {})
@@ -806,7 +809,7 @@ class HaoceAPI:
                                 sentences = re.split(r'(?<=[.!?])\s+', p)
                                 # 拣足够句子的段落，不够则合并后续段落
                                 combined_sents = list(sentences)
-                                j = p_idx + 1
+                                j = paras.index(p) + 1
                                 while sum(len(s.split()) for s in combined_sents) < 60 and j < len(paras):
                                     combined_sents.extend(re.split(r'(?<=[.!?])\s+', paras[j]))
                                     j += 1

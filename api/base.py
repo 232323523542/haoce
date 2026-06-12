@@ -785,6 +785,13 @@ class HaoceAPI:
                 continue
 
             if tid == "3":
+                # TTS 未配置则完全跳过朗读（不能只提交文本）
+                tts_backend = (self.config or {}).get("tts", {}).get("backend", "none")
+                if tts_backend == "none":
+                    print(f"    [SKIP] TTS 未配置，跳过朗读")
+                    results[tid] = {"completed": False, "reason": "无TTS", "remaining": remaining}
+                    continue
+
                 if not self.llm:
                     print(f"    [WARN] 未配置 LLM，跳过")
                     results[tid] = {"completed": False, "reason": "无LLM", "remaining": remaining}
@@ -842,16 +849,8 @@ class HaoceAPI:
                             passage += " This passage is selected from the book for reading practice."
 
                         print(f"    [{i+1}/{remaining}] {ch_label} {len(passage.split())}词", end=" ", flush=True)
-                        tts_backend = (self.config or {}).get("tts", {}).get("backend", "none")
-                        if tts_backend == "none":
-                            resp = self.create_topic(
-                                book_id=book_id, tag_id="3",
-                                title=passage_title, content=passage,
-                            )
-                            ok = resp.get("error", -1) == 0
-                        else:
-                            ok = self.submit_reading_aloud(
-                                book_id=book_id, text=passage, title=passage_title)
+                        ok = self.submit_reading_aloud(
+                            book_id=book_id, text=passage, title=passage_title)
                         print("OK" if ok else "FAIL")
                         if ok:
                             created += 1

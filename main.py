@@ -216,9 +216,10 @@ def main():
         bi = d.get("book", {})
         bj = d.get("bookJoin", {})
         tasks = {}
-        # 朗读
+        # 朗读 (TTS 未配置则不显示)
+        tts_ok = cfg["tts_backend"] and cfg["tts_backend"] != "none"
         n = int(bi.get("tag_3_config", 0))
-        if n: tasks["朗读"] = f"{int(bj.get('tag_3_cnt',0))}/{n}"
+        if n and tts_ok: tasks["朗读"] = f"{int(bj.get('tag_3_cnt',0))}/{n}"
         # 摘抄
         n = int(bi.get("tag_6_config", 0))
         if n: tasks["摘抄"] = f"{int(bj.get('tag_6_cnt',0))}/{n}"
@@ -266,8 +267,9 @@ def main():
         bj = d.get("bookJoin", {})
         bi = d.get("book", {})
         tasks = {}
+        tts_ok = cfg["tts_backend"] and cfg["tts_backend"] != "none"
         n = int(bi.get("tag_3_config", 0))
-        if n: tasks["朗读"] = f"{int(bj.get('tag_3_cnt',0))}/{n}"
+        if n and tts_ok: tasks["朗读"] = f"{int(bj.get('tag_3_cnt',0))}/{n}"
         n = int(bi.get("tag_6_config", 0))
         if n: tasks["摘抄"] = f"{int(bj.get('tag_6_cnt',0))}/{n}"
         n = int(bi.get("tag_5_config", 0))

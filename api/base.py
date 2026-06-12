@@ -57,6 +57,7 @@ class HaoceAPI:
         self.account = account
         self.http = HaoceSession()
         self.llm = llm_client  # LLM 客户端（可选）
+        self.config = None  # 由 main.py 设置，透传给 TTS
         self.uid: Optional[str] = None
         self.name: Optional[str] = None
         self._rate_last = 0.0
@@ -425,7 +426,7 @@ class HaoceAPI:
         word_cnt = len(text.split())
 
         if amr_data is None:
-            amr_data, _ = generate_reading_audio(text, voice_instruct=voice)
+            amr_data, _ = generate_reading_audio(text, voice_instruct=voice, config=self.config)
 
         audio_bytes = amr_data
         ext = "mp3"
@@ -841,8 +842,16 @@ class HaoceAPI:
                             passage += " This passage is selected from the book for reading practice."
 
                         print(f"    [{i+1}/{remaining}] {ch_label} {len(passage.split())}词", end=" ", flush=True)
-                        ok = self.submit_reading_aloud(
-                            book_id=book_id, text=passage, title=passage_title)
+                        tts_backend = (self.config or {}).get("tts", {}).get("backend", "none")
+                        if tts_backend == "none":
+                            resp = self.create_topic(
+                                book_id=book_id, tag_id="3",
+                                title=passage_title, content=passage,
+                            )
+                            ok = resp.get("error", -1) == 0
+                        else:
+                            ok = self.submit_reading_aloud(
+                                book_id=book_id, text=passage, title=passage_title)
                         print("OK" if ok else "FAIL")
                         if ok:
                             created += 1

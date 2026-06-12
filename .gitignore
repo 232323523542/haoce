@@ -1,1 +1,11 @@
 __pycache__/
+*.pyc
+*.pyo
+config.ini
+config.ini.bak
+*.wav
+*.mp3
+.DS_Store
+*.egg-info/
+dist/
+build/

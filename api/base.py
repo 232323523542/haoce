@@ -705,17 +705,15 @@ class HaoceAPI:
 
                 created = 0
                 for i in range(remaining):
-                    print(f"    [朗读 #{i+1}/{remaining}]", end=" ", flush=True)
-
                     try:
                         passage = None
                         passage_title = "Reading Aloud"
+                        ch_label = ""
                         if chapter_objs and novel_id and novel_data:
                             ch_idx = i % len(chapter_objs)
                             ch_info = chapter_objs[ch_idx]
                             novel_container = novel_data.get("novel", {})
                             novel_meta = novel_container.get("novel", {})
-                            print("获取章节...", end=" ", flush=True)
                             ch_content = self.get_chapter_content(
                                 ch_info["cp_id"], novel_meta, book_id)
                             if isinstance(ch_content, dict) and ch_content.get("text"):
@@ -723,16 +721,12 @@ class HaoceAPI:
                                 raw = re.sub(r"<[^>]+>", "", raw)
                                 raw = re.sub(r"[一-鿿　-〿＀-￯]+", " ", raw)
                                 raw = re.sub(r"\s+", " ", raw).strip()
-                                # 按句子切分
                                 sentences = re.split(r'(?<=[.!?])\s+', raw)
                                 sentences = [s.strip() for s in sentences if s.strip()]
-                                total_sentences = len(sentences)
-                                if total_sentences >= 3:
-                                    # 每轮取不同的起始位置：同一章多次朗读时向后偏移
+                                if len(sentences) >= 3:
                                     round_in_chapter = i // len(chapter_objs)
-                                    step = max(1, total_sentences // (remaining + 1))
-                                    start = (round_in_chapter * step * 3) % total_sentences
-                                    # 从 start 位置取句子，凑 60-100 词
+                                    step = max(1, len(sentences) // (remaining + 1))
+                                    start = (round_in_chapter * step * 3) % len(sentences)
                                     picked = []
                                     wc = 0
                                     for s in sentences[start:]:
@@ -740,41 +734,32 @@ class HaoceAPI:
                                         wc += len(s.split())
                                         if wc >= 60:
                                             break
-                                    if wc < 30:
-                                        # 句子太少，回退到开头
-                                        picked = sentences[:5]
-                                    passage = " ".join(picked)
-                                    passage_title = ch_content.get("title") or ch_info.get("chapter", passage_title)
-                                    print(f"[{ch_info.get('chapter','')[:12]} 句{start}-{start+len(picked)} {wc}词]", end=" ", flush=True)
+                                    if wc >= 30:
+                                        passage = " ".join(picked)
+                                        passage_title = ch_content.get("title") or ch_info.get("chapter", passage_title)
+                                        ch_label = ch_info.get("chapter", "")[:15]
 
-                        # 章节内容获取失败，用 LLM 生成
                         if not passage:
-                            print("LLM生成...", end=" ", flush=True)
                             topic_data = self.llm.generate_reading_passage(
-                                book_title=book_title,
-                                chapters=chapters,
-                                book_author=book_author,
-                            )
+                                book_title=book_title, chapters=chapters, book_author=book_author)
                             if not topic_data:
-                                print("[FAIL]")
+                                print(f"    [{i+1}/{remaining}] LLM失败")
                                 continue
                             passage = topic_data.get("content", "")
                             passage_title = topic_data.get("title", passage_title)
+                            ch_label = "LLM"
 
                         while len(passage.split()) < 50:
                             passage += " This passage is selected from the book for reading practice."
 
-                        print(f"[{len(passage.split())}词] TTS+上传...", end=" ", flush=True)
+                        print(f"    [{i+1}/{remaining}] {ch_label} {len(passage.split())}词", end=" ", flush=True)
                         ok = self.submit_reading_aloud(
-                            book_id=book_id,
-                            text=passage,
-                            title=passage_title,
-                        )
+                            book_id=book_id, text=passage, title=passage_title)
+                        print("OK" if ok else "FAIL")
                         if ok:
-                            print("[OK]")
                             created += 1
                     except Exception as e:
-                        print(f"[异常: {e}]")
+                        print(f"    [{i+1}/{remaining}] {e}")
 
                     time.sleep(random.uniform(4, 7))
 

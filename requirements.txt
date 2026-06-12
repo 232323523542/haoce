@@ -1,0 +1,6 @@
+requests>=2.25
+qwen-tts>=0.1
+soundfile>=0.12
+torch>=2.7
+torchaudio>=2.7
+ollama

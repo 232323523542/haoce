@@ -18,7 +18,7 @@
 装好 Python 3.10+，然后：
 
 ```bash
-git clone https://github.com/ZhuanZ1/haoce.git
+git clone https://github.com/232323523542/haoce.git
 cd haoce
 pip install -r requirements.txt
 ```

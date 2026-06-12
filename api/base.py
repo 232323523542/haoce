@@ -663,11 +663,29 @@ class HaoceAPI:
                         target = reply_targets[i % len(reply_targets)]
                         tpid = target["topic_id"]
                         target_title = target.get("topic", "")
+
+                        # 拉一章真实原文段落，让回复引用具体内容
+                        passage = ""
+                        if chapter_objs and novel_id and novel_data:
+                            ch_idx = i % len(chapter_objs)
+                            ch_info = chapter_objs[ch_idx]
+                            novel_meta = novel_data.get("novel", {}).get("novel", {})
+                            self.rate_limit(1.5)
+                            ch_content = self.get_chapter_content(
+                                ch_info["cp_id"], novel_meta, book_id)
+                            if ch_content.get("paragraphs"):
+                                paras = ch_content["paragraphs"]
+                                p = paras[(ch_idx + i) % len(paras)]
+                                words = p.split()
+                                limit = random.randint(40, min(80, len(words)))
+                                passage = " ".join(words[:limit])
+
                         print(f"    [回复 #{i+1}/{reply_remaining}] 生成中...", end=" ")
                         reply_content = self.llm.generate_reply(
                             book_title=book_title,
                             topic_title=target_title,
                             chapters=chapters,
+                            passage=passage,
                         )
                         if not reply_content:
                             print("[FAIL]")

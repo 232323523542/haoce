@@ -2,7 +2,8 @@
 
 “好策”APP 阅读任务自动完成脚本，跟强制阅读和无效作业说拜拜。
 
-
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+![Python 3.10+](https://img.shields.io/badge/Python-3.10+-green.svg)
 
 ## 免责声明
 

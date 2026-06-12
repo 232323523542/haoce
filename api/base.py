@@ -119,13 +119,54 @@ class HaoceAPI:
         )
         return resp.get("data", {})
 
-    def get_chapter_content(self, cp_id: str, novel_name: str, book_id: str) -> dict:
-        """获取章节内容"""
+    def get_chapter_content(self, cp_id: str, novel_meta, book_id: str) -> dict:
+        """
+        获取章节内容
+
+        Args:
+            cp_id: 章节 ID
+            novel_meta: novel 元数据 dict (来自 get_novel_info 的 novel.novel)，
+                       或字符串（旧接口兼容，但可能返回 system error）
+            book_id: 书籍 ID
+
+        Returns:
+            {"title": "...", "text": "...", "raw": {...}} 或空 dict
+        """
+        # 构造 PHP 数组格式的 novel 参数
+        data = {"book_id": book_id, "ts": "1"}
+        if isinstance(novel_meta, dict):
+            for k, v in novel_meta.items():
+                if isinstance(v, dict):
+                    # 嵌套字典如 language
+                    import json
+                    data[f"novel[{k}]"] = json.dumps(v, ensure_ascii=False)
+                elif not isinstance(v, list):
+                    data[f"novel[{k}]"] = str(v)
+        else:
+            data["novel"] = str(novel_meta)
+
         resp = self.http.json_request(
             f"{self.BASE_URL}/book/novel/chapter/{cp_id}",
-            data={"novel": novel_name, "book_id": book_id},
+            data=data,
         )
-        return resp.get("data", {})
+
+        # chapter 在 data 包装里
+        chapter = resp.get("data", {}).get("chapter", {})
+        if not chapter:
+            return {}
+
+        # 从 contents 数组中提取文本
+        contents = chapter.get("contents", [])
+        text_parts = []
+        for c in contents:
+            if c.get("type") == "text" and c.get("text"):
+                text_parts.append(c["text"])
+
+        return {
+            "title": chapter.get("title", ""),
+            "text": "\n".join(text_parts),
+            "raw": chapter,
+        }
 
     def get_view_data(self, novel_id: str) -> dict:
         """获取阅读进度数据 (每个章节的 dtime)"""
@@ -253,7 +294,7 @@ class HaoceAPI:
 
             # 先加载章节内容
             self.rate_limit(min_interval)
-            self.get_chapter_content(cp_id, novel_name, book_id)
+            self.get_chapter_content(cp_id, novel_meta, book_id)
 
             # 上报阅读时长
             self.rate_limit(min_interval)
@@ -675,17 +716,21 @@ class HaoceAPI:
                         try:
                             novel_container = novel_data.get("novel", {})
                             novel_meta = novel_container.get("novel", {})
-                            n_name = novel_meta.get("novel", "") if isinstance(novel_meta, dict) else str(novel_meta)
                             ch_content = self.get_chapter_content(
-                                ch_info["cp_id"], n_name, book_id)
-                            if isinstance(ch_content, dict) and ch_content.get("content"):
-                                raw = ch_content["content"]
+                                ch_info["cp_id"], novel_meta, book_id)
+                            if isinstance(ch_content, dict) and ch_content.get("text"):
+                                raw = ch_content["text"]
                                 # 去掉 HTML 标签
                                 raw = re.sub(r"<[^>]+>", "", raw)
+                                # 去掉中文字符（双语版混有中文翻译）
+                                raw = re.sub(r"[一-鿿　-〿＀-￯]+", " ", raw)
+                                # 去掉中文标点导致的连续空白
+                                raw = re.sub(r"\s+", " ", raw).strip()
                                 words = raw.split()
-                                if len(words) >= 50:
+                                if len(words) >= 30:
+                                    # 截取前 100 词（朗读时长约 30-40 秒）
                                     passage = " ".join(words[:100])
-                                    passage_title = ch_info.get("chapter", passage_title)
+                                    passage_title = ch_content.get("title") or ch_info.get("chapter", passage_title)
                                     print(f"[真实章节 {len(words)}词]", end=" ")
                         except Exception:
                             pass

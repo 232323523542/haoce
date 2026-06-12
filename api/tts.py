@@ -44,25 +44,6 @@ def _get_model(model_path: str = None) -> Optional[Qwen3TTSModel]:
         return None
 
 
-def _wav_to_amr(wav_path: str, output_path: str) -> bool:
-    """用 ffmpeg 将 WAV 转为 AMR-NB (8000Hz, mono, 12.2kbps)"""
-    if not os.path.exists(_FFMPEG):
-        print(f"    [TTS] ffmpeg not found: {_FFMPEG}")
-        return False
-    try:
-        subprocess.run([
-            _FFMPEG, "-i", wav_path,
-            "-af", "volume=3.0",
-            "-ar", "8000", "-ac", "1",
-            "-c:a", "libopencore_amrnb", "-b:a", "12.2k",
-            output_path, "-y",
-        ], check=True, capture_output=True, timeout=120)
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"    [TTS] ffmpeg error: {e.stderr.decode()[:200] if e.stderr else e}")
-        return False
-
-
 def _wav_to_mp3(wav_path: str, output_path: str) -> bool:
     """用 ffmpeg 将 WAV 转为 MP3 (44.1kHz, mono, 128kbps)"""
     if not os.path.exists(_FFMPEG):
@@ -103,37 +84,20 @@ def generate_reading_audio(text: str, voice_instruct: str = "natural young male 
         except Exception as e:
             print(f"    [TTS] Generate failed: {e}")
 
-    # WAV → MP3 / AMR 转换
+    # WAV → MP3
     mp3_path = "C:/tmp/tts_reading.mp3"
-    amr_path = "C:/tmp/tts_reading.amr"
     mp3_data = None
-    amr_data = None
 
     if wav_path and os.path.exists(wav_path) and os.path.exists(_FFMPEG):
         if _wav_to_mp3(wav_path, mp3_path):
             with open(mp3_path, "rb") as f:
                 mp3_data = f.read()
             print(f"    [TTS] MP3 ({len(mp3_data)} bytes)")
-        if _wav_to_amr(wav_path, amr_path):
-            with open(amr_path, "rb") as f:
-                amr_data = f.read()
 
-    if mp3_data or amr_data:
-        return mp3_data, amr_data, wav_path
+    if mp3_data:
+        return mp3_data, wav_path
 
-    # 兜底
-    print(f"    [TTS] WARNING: using silence fallback")
-    return None, _make_silence_amr(), wav_path
+    print(f"    [TTS] WARNING: MP3 failed")
+    return None, wav_path
 
 
-def _make_silence_amr(duration_sec: int = 30) -> bytes:
-    """兜底: 生成静音 AMR (仅在 ffmpeg 不可用时使用)"""
-    header = b"\x23\x21\x41\x4d\x52\x0a"  # #!AMR\n
-    frame_count = duration_sec * 50
-    sid_frame = bytes([
-        0x00, 0x06, 0x98, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    ])
-    return header + sid_frame * frame_count

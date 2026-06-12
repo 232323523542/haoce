@@ -424,14 +424,12 @@ class HaoceAPI:
 
         word_cnt = len(text.split())
 
-        mp3_data = None
         if amr_data is None:
-            mp3_data, amr_data, _ = generate_reading_audio(text, voice_instruct=voice)
+            amr_data, _ = generate_reading_audio(text, voice_instruct=voice)
 
-        # 优先 MP3 高清格式，失败再 AMR
-        audio_bytes = mp3_data or amr_data
-        ext = "mp3" if mp3_data else "amr"
-        mime = "audio/mpeg" if mp3_data else "audio/amr"
+        audio_bytes = amr_data
+        ext = "mp3"
+        mime = "audio/mpeg"
 
         try:
             resp = self.http.session.post(

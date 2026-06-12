@@ -802,22 +802,26 @@ class HaoceAPI:
                                 ch_info["cp_id"], novel_meta, book_id)
                             if isinstance(ch_content, dict) and ch_content.get("paragraphs"):
                                 paras = ch_content["paragraphs"]
-                                # 拣段落：同一章多次访问时自动错开
                                 p_idx = (ch_idx + i) % len(paras) if paras else 0
                                 p = paras[p_idx]
-                                words = p.split()
-                                if len(words) >= 60:
-                                    # 截到 60-100 词
-                                    limit = random.randint(60, min(100, len(words)))
-                                    passage = " ".join(words[:limit])
-                                else:
-                                    # 段落太短，补后续段落凑够 60 词
-                                    combined = list(words)
-                                    j = p_idx + 1
-                                    while len(combined) < 60 and j < len(paras):
-                                        combined.extend(paras[j].split())
-                                        j += 1
-                                    passage = " ".join(combined[:random.randint(60, 100)])
+                                sentences = re.split(r'(?<=[.!?])\s+', p)
+                                # 拣足够句子的段落，不够则合并后续段落
+                                combined_sents = list(sentences)
+                                j = p_idx + 1
+                                while sum(len(s.split()) for s in combined_sents) < 60 and j < len(paras):
+                                    combined_sents.extend(re.split(r'(?<=[.!?])\s+', paras[j]))
+                                    j += 1
+                                # 从完整的句子中选 60-100 词
+                                selected = []
+                                wc = 0
+                                target = random.randint(60, 100)
+                                for s in combined_sents:
+                                    sw = len(s.split())
+                                    if wc + sw > target and wc >= 50:
+                                        break
+                                    selected.append(s)
+                                    wc += sw
+                                passage = " ".join(selected)
                                 passage_title = ch_content.get("title") or ch_info.get("chapter", passage_title)
                                 ch_label = ch_info.get("chapter", "")[:15]
 

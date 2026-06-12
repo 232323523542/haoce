@@ -29,16 +29,16 @@ class HaoceSession:
             "Accept": "application/json, text/javascript, */*; q=0.01",
         })
 
-    def json_request(self, url: str, data: dict = None) -> dict:
+    def json_request(self, url: str, data: dict = None, timeout: int = 30) -> dict:
         """发送 JSON 格式的 API 请求"""
         headers = {
             "X-Display": "json",
             "LOGINUA": "PC",
         }
         if data:
-            resp = self.session.post(url, headers=headers, data=data)
+            resp = self.session.post(url, headers=headers, data=data, timeout=timeout)
         else:
-            resp = self.session.get(url, headers=headers)
+            resp = self.session.get(url, headers=headers, timeout=timeout)
         return resp.json()
 
     def get(self, url: str, **kwargs) -> requests.Response:
@@ -77,6 +77,7 @@ class HaoceAPI:
             f"{self.BASE_URL}/index/login/post",
             headers={"X-Display": "json", "LOGINUA": "PC"},
             data={"openid": self.account.phone, "psw": self.account.password},
+            timeout=30,
         )
         result = resp.json()
         if result.get("error") != 0:
@@ -704,63 +705,60 @@ class HaoceAPI:
 
                 created = 0
                 for i in range(remaining):
-                    print(f"    [朗读 #{i+1}/{remaining}]", end=" ")
+                    print(f"    [朗读 #{i+1}/{remaining}]", end=" ", flush=True)
 
-                    # 优先尝试获取真实章节内容
-                    passage = None
-                    passage_title = "Reading Aloud"
-                    if chapter_objs and novel_id and novel_data:
-                        ch_idx = i % len(chapter_objs)
-                        ch_info = chapter_objs[ch_idx]
-                        # 修正 novel_name 取法: nd['novel']['novel']['novel']
-                        try:
+                    try:
+                        # 优先尝试获取真实章节内容
+                        passage = None
+                        passage_title = "Reading Aloud"
+                        if chapter_objs and novel_id and novel_data:
+                            ch_idx = i % len(chapter_objs)
+                            ch_info = chapter_objs[ch_idx]
                             novel_container = novel_data.get("novel", {})
                             novel_meta = novel_container.get("novel", {})
+                            print("获取章节...", end=" ", flush=True)
                             ch_content = self.get_chapter_content(
                                 ch_info["cp_id"], novel_meta, book_id)
                             if isinstance(ch_content, dict) and ch_content.get("text"):
                                 raw = ch_content["text"]
-                                # 去掉 HTML 标签
                                 raw = re.sub(r"<[^>]+>", "", raw)
-                                # 去掉中文字符（双语版混有中文翻译）
                                 raw = re.sub(r"[一-鿿　-〿＀-￯]+", " ", raw)
-                                # 去掉中文标点导致的连续空白
                                 raw = re.sub(r"\s+", " ", raw).strip()
                                 words = raw.split()
                                 if len(words) >= 30:
-                                    # 截取前 100 词（朗读时长约 30-40 秒）
                                     passage = " ".join(words[:100])
                                     passage_title = ch_content.get("title") or ch_info.get("chapter", passage_title)
-                                    print(f"[真实章节 {len(words)}词]", end=" ")
-                        except Exception:
-                            pass
+                                    print(f"[真实章节 {len(words)}词]", end=" ", flush=True)
 
-                    # 章节内容获取失败，用 LLM 生成类似书中段落的文本
-                    if not passage:
-                        print("生成...", end=" ")
-                        topic_data = self.llm.generate_reading_passage(
-                            book_title=book_title,
-                            chapters=chapters,
-                            book_author=book_author,
+                        # 章节内容获取失败，用 LLM 生成
+                        if not passage:
+                            print("LLM生成...", end=" ", flush=True)
+                            topic_data = self.llm.generate_reading_passage(
+                                book_title=book_title,
+                                chapters=chapters,
+                                book_author=book_author,
+                            )
+                            if not topic_data:
+                                print("[FAIL]")
+                                continue
+                            passage = topic_data.get("content", "")
+                            passage_title = topic_data.get("title", passage_title)
+
+                        while len(passage.split()) < 50:
+                            passage += " This passage is selected from the book for reading practice."
+
+                        print(f"[{len(passage.split())}词] TTS+上传...", end=" ", flush=True)
+                        ok = self.submit_reading_aloud(
+                            book_id=book_id,
+                            text=passage,
+                            title=passage_title,
                         )
-                        if not topic_data:
-                            print("[FAIL]")
-                            continue
-                        passage = topic_data.get("content", "")
-                        passage_title = topic_data.get("title", passage_title)
+                        if ok:
+                            print("[OK]")
+                            created += 1
+                    except Exception as e:
+                        print(f"[异常: {e}]")
 
-                    while len(passage.split()) < 50:
-                        passage += " This passage is selected from the book for reading practice."
-
-                    print(f"[{len(passage.split())}词]", end=" ")
-                    ok = self.submit_reading_aloud(
-                        book_id=book_id,
-                        text=passage,
-                        title=passage_title,
-                    )
-                    if ok:
-                        print("[OK]")
-                        created += 1
                     time.sleep(random.uniform(4, 7))
 
                 results[tid] = {"completed": created >= remaining, "created": created}

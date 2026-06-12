@@ -723,11 +723,13 @@ class HaoceAPI:
                                 raw = re.sub(r"[一-鿿　-〿＀-￯]+", " ", raw)
                                 raw = re.sub(r"\s+", " ", raw).strip()
                                 words = raw.split()
-                                if len(words) >= 50:
-                                    # 同一章多次朗读时取不同位置
-                                    round_in_chapter = i // len(chapter_objs)
+                                if len(words) >= 80:
                                     chunk_size = 80
-                                    start = (round_in_chapter * chunk_size * 3) % max(1, len(words) - chunk_size)
+                                    # 该章会被用几次，把章节等分
+                                    uses = (remaining + len(chapter_objs) - 1 - ch_idx) // len(chapter_objs)
+                                    which = i // len(chapter_objs)
+                                    step = max(1, (len(words) - chunk_size) // uses)
+                                    start = min(which * step, len(words) - chunk_size)
                                     passage = " ".join(words[start:start + chunk_size])
                                     passage_title = ch_content.get("title") or ch_info.get("chapter", passage_title)
                                     ch_label = ch_info.get("chapter", "")[:15]

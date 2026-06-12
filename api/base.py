@@ -547,15 +547,16 @@ class HaoceAPI:
                     for i in range(reply_remaining):
                         target = reply_targets[i % len(reply_targets)]
                         tpid = target["topic_id"]
+                        target_title = target.get("topic", "")
                         print(f"    [回复 #{i+1}/{reply_remaining}] 生成中...", end=" ")
-                        reply_data = self.llm.generate_topic(
-                            book_title=book_title, tag_type="0",
-                            chapters=chapters, book_author=book_author,
+                        reply_content = self.llm.generate_reply(
+                            book_title=book_title,
+                            topic_title=target_title,
+                            chapters=chapters,
                         )
-                        if not reply_data:
+                        if not reply_content:
                             print("[FAIL]")
                             continue
-                        reply_content = reply_data.get("content", "")
                         while len(reply_content.split()) < max(30, int(book_info.get("word_comment", 30))):
                             reply_content += " I agree with this perspective and would add further thoughts."
                         print(f"[topic={tpid}]", end=" ")

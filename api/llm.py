@@ -85,6 +85,43 @@ class LLMClient(ABC):
 
         return None
 
+    def generate_reply(self, book_title: str, topic_title: str = "",
+                       chapters: list[str] = None) -> Optional[str]:
+        """
+        生成一条讨论回复（40-80词，对话语气，无需标题）
+
+        Args:
+            book_title: 书名
+            topic_title: 被回复的主题标题（可选，让回复更有针对性）
+            chapters: 章节列表
+
+        Returns:
+            回复文本，或 None
+        """
+        chapter_hints = ""
+        if chapters:
+            chapter_hints = "章节: " + ", ".join(chapters[:6])
+        topic_hint = f'你正在回复主题「{topic_title}」' if topic_title else ''
+
+        messages = [
+            {"role": "system", "content": "你是一名大学生，正在英语阅读课论坛上回复同学的讨论帖。用英文写一段简短自然的回复（40-80词），像真实的学生对话，不要 AI 腔。只返回回复文本，不要 JSON、不要标题。"},
+            {"role": "user", "content": f"书名: {book_title}\n{chapter_hints}\n{topic_hint}\n请写一段回复，表达你的看法或补充观点（40-80词，直接回复即可，不要格式）。"},
+        ]
+
+        for attempt in range(2):
+            try:
+                text = self.chat(messages).strip()
+                # 去掉模型可能多余输出的引号或标记
+                text = text.strip('"').strip("'").strip()
+                if len(text.split()) >= 15:
+                    return text
+                print(f"    [WARN] 回复太短 ({len(text.split())}词), 重试")
+            except Exception as e:
+                print(f"    [WARN] LLM 失败 (尝试 {attempt+1}/2): {e}")
+                if attempt == 0:
+                    time.sleep(5)
+        return None
+
     def _parse_json_response(self, text: str, tag_type: str) -> Optional[dict]:
         """解析 LLM 返回的 JSON"""
         text = text.strip()

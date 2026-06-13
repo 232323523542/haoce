@@ -198,38 +198,58 @@ class HaoceAPI:
         return resp
 
     def do_view_v2(self, novel_id: str, book_id: str, cp_id: str,
-                   page: int, page_count: int, mslad: str, mslad2: str,
-                   start_time: str) -> dict:
+                   dtime: int, page: int, page_count: int,
+                   mslad: str, mslad2: str, start_time: str = "",
+                   site_id: str = "", view: str = "", word: str = "",
+                   block_id: str = "", count_v2: int = None) -> dict:
         """
         上报章节阅读视图 (带 MD5 签名)
-        模拟 readerFull 中的 doViewV2 逻辑
+        完全模拟 APP readerFull 中的 doViewV2 逻辑
+
+        md5Array = {cp_id, site_id, view, word, novel_id, dtime, page, page_count}
+        sigin = MD5(timestamp + MD5(ksort(md5Array)) + mslad)
         """
         timestamp = str(int(time.time()))
-        cp_view = {
-            "book_id": book_id,
-            "cp_id": cp_id,
-            "novel_id": novel_id,
-            "page": page,
-            "page_count": page_count,
+        if not start_time:
+            start_time = str(mslad2)
+
+        # 8 个签名参数（与 APP 完全一致，按键名字母排序）
+        md5Array = {
+            "cp_id": str(cp_id),
+            "dtime": str(dtime),
+            "novel_id": str(novel_id),
+            "page": str(page),
+            "page_count": str(page_count),
+            "site_id": str(site_id),
+            "view": str(view),
+            "word": str(word),
         }
+        sorted_keys = sorted(md5Array.keys())
+        sigin2 = "&".join(f"{k}={md5Array[k]}" for k in sorted_keys)
 
-        # 按 key 排序构建签名字符串
-        md5_array = dict(cp_view)
-        sorted_keys = sorted(md5_array.keys())
-        sorted_str = "&".join(f"{k}={md5_array[k]}" for k in sorted_keys)
-
-        # sigin = MD5(timestamp + MD5(sorted_str) + mslad)
-        inner_md5 = hashlib.md5(sorted_str.encode()).hexdigest()
+        # sigin = MD5(timestamp + MD5(sigin2) + mslad)
+        inner_md5 = hashlib.md5(sigin2.encode()).hexdigest()
         sigin = hashlib.md5(
             (timestamp + inner_md5 + mslad).encode()
         ).hexdigest()
+        sigin3 = timestamp + sigin2 + mslad
 
-        cp_view["sigin"] = sigin
-        cp_view["sigin2"] = sorted_str
-        cp_view["sigin3"] = timestamp + sorted_str + mslad
-        cp_view["timestamp"] = timestamp
-        cp_view["timestamp2"] = mslad2
-        cp_view["start_time"] = start_time
+        cp_view = {
+            "cp_id": str(cp_id),
+            "novel_id": str(novel_id),
+            "book_id": str(book_id),
+            "dtime": str(dtime),
+            "page": str(page),
+            "page_count": str(page_count),
+            "block_id": str(block_id) if block_id else "",
+            "count_v2": str(count_v2) if count_v2 is not None else str(dtime),
+            "sigin": sigin,
+            "sigin2": sigin2,
+            "sigin3": sigin3,
+            "timestamp": timestamp,
+            "timestamp2": str(mslad2),
+            "start_time": str(start_time),
+        }
 
         resp = self.http.json_request(
             f"{self.BASE_URL}/book/novel/doViewV2",
@@ -275,12 +295,16 @@ class HaoceAPI:
         chapters = novel.get("chapter", [])
         mslad = novel_data.get("mslad", "")
         mslad2 = novel_data.get("mslad2", "")
+        start_time = mslad2
         novel_meta = novel.get("novel", {})
+        view_list = novel.get("viewList", {})
+        block_id = view_list.get("block_id", "")
+        site_id = str(novel_meta.get("site", ""))
         novel_name = novel_meta.get("novel", "") if isinstance(novel_meta, dict) else str(novel_meta)
 
-        print(f"  共 {len(chapters)} 章, mslad={mslad[:16]}...")
+        print(f"  共 {len(chapters)} 章")
 
-        # 获取当前进度
+        # 获取当前进度（每章 dtime/progress/view）
         self.rate_limit(min_interval)
         view_data = self.get_view_data(novel_id)
         vlist = view_data.get("vList", {})
@@ -288,20 +312,23 @@ class HaoceAPI:
         for i, ch in enumerate(chapters):
             cp_id = ch["cp_id"]
             chapter_title = ch.get("chapter", f"Chapter {i+1}")
-            page_count = int(ch.get("word", 1000)) // 200 + 1  # 估算页数
+            word_count = int(ch.get("word", 0))
+            page_count = max(1, word_count // 200) if word_count > 0 else 1
+            chapter_dtime = max(duration_per_chapter, word_count // 10) if word_count > 0 else duration_per_chapter
 
             # 检查当前进度
-            current_dtime = 0
-            if cp_id in vlist:
-                current_dtime = int(vlist[cp_id].get("dtime", 0))
+            cv = vlist.get(str(cp_id), {})
+            current_dtime = int(cv.get("dtime", 0))
+            current_progress = int(cv.get("progress", 0))
+            ch_view = int(cv.get("view", 0))
 
-            if current_dtime >= duration_per_chapter:
-                print(f"  [{i+1}/{len(chapters)}] {chapter_title} - 已完成 ({current_dtime}s), 跳过")
+            if current_progress >= 10000:
+                print(f"  [{i+1}/{len(chapters)}] {chapter_title} - 已完成, 跳过")
                 continue
 
-            need_time = duration_per_chapter - current_dtime
-            print(f"  [{i+1}/{len(chapters)}] {chapter_title} - "
-                  f"当前进度 {current_dtime}s, 需要补充 {need_time}s")
+            action = "更新" if current_dtime > 0 else "上报"
+            print(f"  [{i+1}/{len(chapters)}] {chapter_title} ({word_count}词) - "
+                  f"{action} {chapter_dtime}s ...", end=" ", flush=True)
 
             # 先加载章节内容
             self.rate_limit(min_interval)
@@ -309,22 +336,32 @@ class HaoceAPI:
 
             # 上报阅读时长
             self.rate_limit(min_interval)
-            self.report_time(novel_id, book_id, duration_per_chapter)
+            self.report_time(novel_id, book_id, chapter_dtime)
 
-            # 上报章节视图 (带签名)
+            # 上报章节视图 (V2，与 APP 一致的 MD5 签名)
             self.rate_limit(min_interval)
-            self.do_view_v2(
+            r = self.do_view_v2(
                 novel_id=novel_id,
                 book_id=book_id,
                 cp_id=cp_id,
+                dtime=chapter_dtime,
                 page=page_count,
                 page_count=page_count,
                 mslad=mslad,
                 mslad2=mslad2,
-                start_time=mslad2,
+                start_time=start_time,
+                site_id=site_id,
+                view=str(ch_view),
+                word=str(word_count),
+                block_id=block_id,
+                count_v2=chapter_dtime,
             )
-
-            print(f"    已上报: time={duration_per_chapter}s, page={page_count}")
+            err = r.get("error", -1)
+            if err == 0:
+                start_time = r.get("data", {}).get("start_time", start_time)
+                print("OK")
+            else:
+                print(f"FAIL (error={err}, {r.get('error_des', '')})")
 
             # 模拟真实阅读间隔
             time.sleep(random.uniform(2, 5))

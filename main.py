@@ -230,7 +230,7 @@ def main():
         tn, cn = parse_discuss_req(d.get("task", {}).get("0", ""))
         if tn or cn: tasks["讨论"] = f"帖{int(bj.get('topic_cnt',0))}/{tn} 回{int(bj.get('comment_cnt',0))}/{cn}"
         if tasks:
-            entries.append((bid, title, tasks))
+            entries.append((bid, title, tasks, b))
 
     if not entries:
         print("没有待处理任务"); return
@@ -249,7 +249,7 @@ def main():
         try:
             idx = int(s) - 1
             if 0 <= idx < len(entries):
-                bid, title, tasks = entries[idx]
+                bid, title, tasks, book_data = entries[idx]
                 break
         except ValueError:
             pass
@@ -278,9 +278,11 @@ def main():
         if tn or cn: tasks["讨论"] = f"帖{int(bj.get('topic_cnt',0))}/{tn} 回{int(bj.get('comment_cnt',0))}/{cn}"
 
         tag_keys = list(tasks.keys())
+        all_options = ["模拟阅读"] + tag_keys
         print(f"\n{title}")
-        for i, name in enumerate(tag_keys):
-            print(f"  {i+1}. {name} ({tasks[name]})")
+        for i, name in enumerate(all_options):
+            label = f" ({tasks[name]})" if name in tasks else ""
+            print(f"  {i+1}. {name}{label}")
         print(f"  0. 返回")
 
         while True:
@@ -288,8 +290,8 @@ def main():
             if s == "0": break
             try:
                 idx = int(s) - 1
-                if 0 <= idx < len(tag_keys):
-                    name = tag_keys[idx]
+                if 0 <= idx < len(all_options):
+                    name = all_options[idx]
                     break
             except ValueError:
                 pass
@@ -297,6 +299,17 @@ def main():
 
         if s == "0":
             break
+
+        if name == "模拟阅读":
+            print(f"\n开始: {title} / 模拟阅读")
+            print("-" * 40)
+            try:
+                api.simulate_reading(book_data)
+            except Exception as e:
+                print(f"出错: {e}")
+                traceback.print_exc()
+            print("\n处理完毕\n")
+            continue
 
         tag_id = tag_map.get(name)
         if not tag_id:

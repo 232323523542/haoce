@@ -71,19 +71,25 @@ def _wav_to_mp3(wav_path: str, output_path: str, config: dict = None) -> bool:
 
 
 def _tts_api(text: str, voice: str, config: dict) -> tuple:
-    """TTS API 后端：调 OpenAI 兼容 TTS 接口"""
+    """TTS API 后端：调 OpenAI 兼容 TTS 接口
+
+    注意：OpenAI TTS API 只接受预设音色名（alloy/echo/fable/onyx/nova/shimmer），
+    不能传自然语言描述。voice 参数（自然语言）只对 qwen 后端有意义，
+    这里通过 config[tts][voice] 让用户配置 OpenAI 预设音色。
+    """
     import requests
     tts_cfg = config.get("tts", {})
     base_url = tts_cfg.get("base_url", "https://api.openai.com/v1").rstrip("/")
     api_key = tts_cfg.get("api_key", "")
     model = tts_cfg.get("model", "tts-1")
+    api_voice = tts_cfg.get("voice", "alloy")
     try:
         resp = requests.post(
             f"{base_url}/audio/speech",
             json={
                 "model": model,
                 "input": text,
-                "voice": "alloy",
+                "voice": api_voice,
                 "response_format": "mp3",
                 "speed": 1.0,
             },
@@ -106,16 +112,21 @@ def _tts_qwen(text: str, voice: str, config: dict) -> tuple:
     if model is None:
         return None, None
 
+    wav_path = None
+    mp3_path = None
     try:
         prompt = f"A {voice}, reading an English passage aloud at a natural steady clear pace."
         wavs, sr = model.generate_voice_design(
             text=text, language="English", instruct=prompt,
         )
-        wav_path = tempfile.mktemp(suffix=".wav")
+        # 用 NamedTemporaryFile 替代已弃用的 mktemp，避免竞态与文件泄漏
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            wav_path = f.name
         sf.write(wav_path, wavs[0], sr)
         print(f"    [TTS] WAV saved ({len(wavs[0])/sr:.1f}s)")
 
-        mp3_path = tempfile.mktemp(suffix=".mp3")
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+            mp3_path = f.name
         if os.path.exists(wav_path) and _wav_to_mp3(wav_path, mp3_path, config):
             with open(mp3_path, "rb") as f:
                 mp3_data = f.read()
@@ -123,6 +134,14 @@ def _tts_qwen(text: str, voice: str, config: dict) -> tuple:
             return mp3_data, wav_path
     except Exception as e:
         print(f"    [TTS] Generate failed: {e}")
+    finally:
+        # 清理临时文件：mp3 一定删；wav 仅在转换成功时保留返回路径外也清理
+        # 注：成功路径下调用方只拿到 wav_path 字符串，文件已不再需要（MP3 已读入内存）
+        if mp3_path and os.path.exists(mp3_path):
+            try:
+                os.remove(mp3_path)
+            except OSError:
+                pass
 
     return None, None
 

@@ -745,6 +745,13 @@ class HaoceAPI:
                                 reply_targets = [{"topic_id": new_id}]
                                 topics_created += 1
 
+                    # 兜底创建主题仍失败时 reply_targets 为空，
+                    # 直接进入下面的 for 循环会触发 ZeroDivisionError (i % 0)，
+                    # 这里把待回复数置 0 以跳过循环
+                    if reply_remaining > 0 and not reply_targets:
+                        print(f"    [WARN] 仍无可回复的主题，跳过回复")
+                        reply_remaining = 0
+
                     for i in range(reply_remaining):
                         target = reply_targets[i % len(reply_targets)]
                         tpid = target["topic_id"]

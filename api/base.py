@@ -742,8 +742,11 @@ class HaoceAPI:
                                                      title=title, content=content)
                             if resp.get("error") == 0:
                                 new_id = resp.get("redirect", {}).get("url", "").split("/")[-1]
-                                reply_targets = [{"topic_id": new_id}]
-                                topics_created += 1
+                                if new_id:
+                                    reply_targets = [{"topic_id": new_id}]
+                                    topics_created += 1
+                                else:
+                                    print(f"    [WARN] 主题已创建但未返回 url，无法作为回复目标")
 
                     # 兜底创建主题仍失败时 reply_targets 为空，
                     # 直接进入下面的 for 循环会触发 ZeroDivisionError (i % 0)，

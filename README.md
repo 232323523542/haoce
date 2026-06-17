@@ -5,6 +5,8 @@
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Python 3.10+](https://img.shields.io/badge/Python-3.10+-green.svg)
 
+> 📖 **30 秒了解**：这是一个针对好策阅读平台的自动化脚本，通过逆向其 API，自动完成阅读时长上报、讨论、摘抄、报告、朗读等任务。支持 LLM（OpenAI/Ollama）和 TTS（API/Qwen3）双后端，首次运行有中文配置向导。
+
 ## 免责声明
 
 > ⚠️ **请务必在使用前完整阅读本节。运行本工具即视为你已阅读、理解并同意全部条款。**
@@ -65,8 +67,10 @@
 - **摘抄自动完成**：从书中提取精彩段落自动提交
 - **报告自动完成**：根据书籍内容生成读书报告
 - **朗读自动完成**：支持 TTS 语音合成，生成真实朗读音频上传（不是静音文件）
-- **多账号支持**：启动时输入任意账号密码，帮同学一起搞定
 - **AI 驱动**：接入大语言模型，生成的内容贴合书籍，不被平台判定为无效
+- **三种 LLM 后端**：OpenAI 兼容 API / 本地 Ollama / 跳过
+- **三种 TTS 后端**：OpenAI 兼容 TTS API / 本地 Qwen3-TTS / 跳过
+- **首次引导**：第一次运行有中文配置向导，零门槛上手
 
 ## 技术实现
 
@@ -75,15 +79,46 @@
 - **智能文本切割**：按句子边界切割段落，确保朗读文本在 60-100 词之间，不会从句子中间断开
 - **随机化参数**：每次请求间隔、内容选择均随机化，模拟人类操作节奏
 - **PHP 旧式 API 适配**：好策后端使用传统的 PHP 数组参数格式，本项目完整适配了其接口规范
+- **MD5 签名复刻**：完整复刻 APP 的 `doViewV2` 阅读上报签名逻辑，确保进度被服务器认可
+
+## 项目结构
+
+```
+haoce/
+├── main.py                # 入口：首次引导 + 选书选任务的交互流程
+├── config.example.ini     # 配置模板（复制为 config.ini 后修改）
+├── requirements.txt       # pip 依赖
+├── pyproject.toml         # 打包配置
+├── api/
+│   ├── base.py            # 核心：好策 API 封装、模拟阅读、任务提交
+│   ├── llm.py             # LLM 客户端（Ollama / OpenAI 双后端）
+│   └── tts.py             # TTS 模块（api / qwen / none 三后端）
+└── docs/                  # 设计文档
+```
+
+## 任务类型对照
+
+| 任务 | 平台 tag_id | 需要的后端 | 说明 |
+|------|-------------|-----------|------|
+| 模拟阅读 | — | 无 | 上报阅读时长和章节进度 |
+| 讨论 | 0 | LLM | 生成主题帖 + 回复，引用真实原文 |
+| 朗读 | 3 | TTS | TTS 合成语音并上传 MP3 |
+| 报告 | 5 | LLM | 生成读书报告 |
+| 摘抄 | 6 | LLM | 生成原文摘抄 + 赏析点评 |
 
 ## 安装与使用
 
 ### 环境要求
 
+**必需：**
 - **Python 3.10+**
-- **ffmpeg**（本地 TTS 需要）
-- **NVIDIA 显卡 4GB+ 显存**（本地 TTS 可选，API 模式不需要）
-- **Ollama**（本地 LLM 可选，API 模式不需要）
+
+**按需安装（取决于你选的后端）：**
+- **ffmpeg** —— 仅在选择"本地 Qwen3-TTS"时需要
+- **NVIDIA 显卡 4GB+ 显存** —— 仅在选择"本地 Qwen3-TTS"时需要（API 模式不需要）
+- **Ollama** —— 仅在选择"本地 Ollama LLM"时需要（API 模式不需要）
+
+> 💡 **最省事的组合**：LLM 用 OpenAI 兼容 API + TTS 用 API → 只需要 Python，不需要显卡、ffmpeg、Ollama。
 
 ### 安装步骤
 
@@ -92,20 +127,56 @@
 ```bash
 git clone https://github.com/232323523542/haoce.git
 cd haoce
+```
+
+2. 安装依赖
+
+```bash
 pip install -r requirements.txt
 ```
 
-2. 安装 ffmpeg（本地 TTS 需要）
+> ⚠️ **注意**：完整安装会拉取 PyTorch（约 2GB+）。如果你只用 API 模式（不需要本地 TTS），
+> 可以手动只装核心依赖：`pip install requests ollama`，按需再补 `qwen-tts soundfile torch torchaudio`。
+
+3. 安装 ffmpeg（仅本地 TTS 需要）
 
 - Windows: `winget install ffmpeg`
 - Mac: `brew install ffmpeg`
 - Linux: `apt install ffmpeg`
 
-3. 运行
+4. 运行
 
 ```bash
 python main.py
 ```
+
+### 首次运行示例
+
+第一次运行会进入中文配置向导：
+
+```
+==================================================
+好策自动阅读 v1.0 — 首次配置
+==================================================
+
+[1/3] LLM 后端 (讨论/摘抄/报告):
+  [1] OpenAI 兼容 API (推荐，需API Key)
+  [2] 本地 Ollama (免费，需自行安装模型)
+  [3] 跳过 (不提交讨论/摘抄/报告)
+选择 (1-3):
+
+[2/3] TTS 后端 (朗读配音):
+  [1] TTS API (需提供 API Key 和接口地址)
+  [2] 本地 TTS (免费，需 NVIDIA 显卡 4GB+ 显存)
+  [3] 跳过 (不提交朗读任务)
+选择 (1-3):
+
+[3/3] 好策账号:
+手机号:
+密码:
+```
+
+配置完成后会自动保存到 `config.ini`，后续启动直接进入选书选任务界面。
 
 ### 使用方法
 
@@ -113,7 +184,7 @@ python main.py
 2. 输入好策账号密码登录
 3. 从书籍列表中选择要处理的书
 4. 从任务列表中选择要完成的任务类型
-5. 脚本自动执行，完成后返回任务菜单，可继续选择其他任务或切换账号
+5. 脚本自动执行，完成后返回任务菜单，可继续选择其他任务
 
 ## 配置说明
 
@@ -133,21 +204,66 @@ python main.py
 | 本地 TTS | Qwen3-TTS 1.7B 模型本地推理 | 免费 | NVIDIA 4GB+ 显存 |
 | 跳过 | 不提交朗读任务 | 免费 | 无 |
 
+### 配置示例
+
+完整的配置模板见 [`config.example.ini`](config.example.ini)。常用字段速览：
+
+```ini
+[account]
+phone = 你的手机号
+password = 你的密码
+
+[reading]
+duration_per_chapter = 120   # 每章模拟阅读秒数
+min_interval = 3             # 请求最小间隔（秒）
+
+[llm]
+backend = openai             # openai / ollama / none
+base_url = https://api.openai.com/v1
+api_key = sk-xxx
+model = gpt-4o-mini
+
+[tts]
+backend = api                # api / qwen / none
+base_url = https://api.openai.com/v1
+api_key = sk-xxx
+model = tts-1
+voice = alloy                # alloy/echo/fable/onyx/nova/shimmer (OpenAI 预设音色)
+```
+
 ## 已知问题与限制
 
 1. **好策 API 限流**：请求过于频繁会被暂时限制，脚本已内置随机间隔（3-6 秒），但仍建议不要连续处理多本书
-2. **本地 TTS 显存需求**：Qwen3-TTS 模型加载约占用 3-4GB 显存，低于 4GB 的显卡无法使用本地模式，请使用 TTS API
+2. **本地 TTS 显存需求**：Qwen3-TTS 模型加载约占用 3-4GB 显存，低于 4GB 的显卡加载会失败，请改用 TTS API
 3. **本地 LLM 质量**：Ollama 小模型（7B）生成的内容质量不如 GPT-4o，可能被平台判定为低质量，建议使用 API 模式
-4. **朗读音频格式**：目前提交 MP3 格式，如果好策后续改为只接受 AMR 格式需要适配
-5. **PHP 接口变更**：好策后端接口可能随时调整，如遇到报错请提 Issue
+4. **本地 TTS 推理速度**：无显卡时 CPU 也能跑，但生成一段音频可能要数十秒到几分钟，体验较差
+5. **PDF 类型书籍**：目前仅支持 EPUB/网页类型书籍的模拟阅读，PDF 类型的进度上报尚未实现
+6. **音频格式**：当前提交 MP3 格式，如果好策后续改为只接受 AMR 等格式需要适配
+7. **PHP 接口变更**：好策后端接口可能随时调整，如遇到报错请提 Issue
+
+## 常见问题（FAQ）
+
+**Q：提示"无可回复的主题"后跳过了回复？**
+A：这是正常的保护逻辑 —— 当一本书没有其他用户发帖可供回复、且兜底创建新主题也失败时，脚本会跳过回复避免崩溃，不影响其他任务。
+
+**Q：TTS 生成的音频听起来不像配置的音色？**
+A：TTS API 模式下，音色由 `config.ini` 里 `[tts] voice` 字段决定（OpenAI 预设音色名）。本地 Qwen3-TTS 模式才会用自然语言描述音色。
+
+**Q：跑着跑着突然报错退出？**
+A：多半是网络波动或限流。脚本对单次失败有重试，但连续失败会中断。等几分钟再跑即可。
+
+**Q：支持哪些 LLM 服务商？**
+A：任何兼容 OpenAI Chat Completions 接口的服务都可以，比如 OpenAI 官方、DeepSeek、智谱、月之暗面、本地 Ollama 的 OpenAI 兼容端口等。
 
 ## 未来改进方向
 
 1. Docker 一键部署，降低使用门槛
 2. Web 管理界面，在浏览器中操作
 3. 多本书顺序处理，无需人工切换
-4. 本地 TTS 支持 CPU 推理，降低硬件门槛
-5. 增加更多 LLM 后端支持（Gemini、Claude 等）
+4. 支持 PDF 类型书籍的模拟阅读
+5. 本地 TTS 支持 CPU 流式推理，降低等待时间
+6. 增加更多 LLM 后端支持（Gemini、Claude 原生接口等）
+7. 历史提交中敏感信息的彻底清理工具
 
 ## 贡献
 

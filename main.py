@@ -237,7 +237,7 @@ def main():
 
     # 选书
     print()
-    for i, (bid, title, tasks) in enumerate(entries):
+    for i, (bid, title, tasks, _book) in enumerate(entries):
         tstr = "  ".join(f"{k}({v})" for k, v in tasks.items())
         print(f"  {i+1}. {title}")
         print(f"     {tstr}")

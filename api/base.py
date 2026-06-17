@@ -19,6 +19,21 @@ class HaoceAccount:
     password: str
 
 
+def safe_int(value, default=0):
+    """把 None / 空串 / 异常值都安全转成 int
+
+    服务端有时会把整数字段返回为 JSON null（→ Python None），这种情况下
+    `dict.get(key, default)` 的默认值不会生效，直接 int(None) 会崩。
+    这个函数统一兜底，让 22 处 int(...get(...)) 调用全部安全。
+    """
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 class HaoceSession:
     """会话管理"""
 
@@ -312,15 +327,15 @@ class HaoceAPI:
         for i, ch in enumerate(chapters):
             cp_id = ch["cp_id"]
             chapter_title = ch.get("chapter", f"Chapter {i+1}")
-            word_count = int(ch.get("word", 0))
+            word_count = safe_int(ch.get("word"))
             page_count = max(1, word_count // 200) if word_count > 0 else 1
             chapter_dtime = max(duration_per_chapter, word_count // 10) if word_count > 0 else duration_per_chapter
 
             # 检查当前进度
             cv = vlist.get(str(cp_id), {})
-            current_dtime = int(cv.get("dtime", 0))
-            current_progress = int(cv.get("progress", 0))
-            ch_view = int(cv.get("view", 0))
+            current_dtime = safe_int(cv.get("dtime"))
+            current_progress = safe_int(cv.get("progress"))
+            ch_view = safe_int(cv.get("view"))
 
             if current_progress >= 10000:
                 print(f"  [{i+1}/{len(chapters)}] {chapter_title} - 已完成, 跳过")
@@ -592,16 +607,16 @@ class HaoceAPI:
         tag_configs = {}
         tag_current = {}
         for tid in ["3", "4", "5", "6", "9"]:
-            tag_configs[tid] = int(book_info.get(f"tag_{tid}_config", 0))
-            tag_current[tid] = int(bj.get(f"tag_{tid}_cnt", 0))
+            tag_configs[tid] = safe_int(book_info.get(f"tag_{tid}_config"))
+            tag_current[tid] = safe_int(bj.get(f"tag_{tid}_cnt"))
 
         # 讨论任务: 分"主题"和"回复"两部分
         discuss_topic_need, discuss_reply_need = self._parse_discuss_requirement(
             detail.get("task", {}).get("0", ""),
             book_info.get("word_topic", 30),
         )
-        discuss_topic_done = int(bj.get("topic_cnt", 0))
-        discuss_reply_done = int(bj.get("comment_cnt", 0))
+        discuss_topic_done = safe_int(bj.get("topic_cnt"))
+        discuss_reply_done = safe_int(bj.get("comment_cnt"))
 
         tag_names = {
             "0": "讨论", "3": "朗读", "4": "重要",

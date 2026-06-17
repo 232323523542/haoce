@@ -11,7 +11,7 @@ import traceback
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
-from api.base import HaoceAPI, HaoceAccount
+from api.base import HaoceAPI, HaoceAccount, safe_int
 from api.llm import create_llm_client
 
 
@@ -218,17 +218,17 @@ def main():
         tasks = {}
         # 朗读 (TTS 未配置则不显示)
         tts_ok = cfg["tts_backend"] and cfg["tts_backend"] != "none"
-        n = int(bi.get("tag_3_config", 0))
-        if n and tts_ok: tasks["朗读"] = f"{int(bj.get('tag_3_cnt',0))}/{n}"
+        n = safe_int(bi.get("tag_3_config"))
+        if n and tts_ok: tasks["朗读"] = f"{safe_int(bj.get('tag_3_cnt'))}/{n}"
         # 摘抄
-        n = int(bi.get("tag_6_config", 0))
-        if n: tasks["摘抄"] = f"{int(bj.get('tag_6_cnt',0))}/{n}"
+        n = safe_int(bi.get("tag_6_config"))
+        if n: tasks["摘抄"] = f"{safe_int(bj.get('tag_6_cnt'))}/{n}"
         # 报告
-        n = int(bi.get("tag_5_config", 0))
-        if n: tasks["报告"] = f"{int(bj.get('tag_5_cnt',0))}/{n}"
+        n = safe_int(bi.get("tag_5_config"))
+        if n: tasks["报告"] = f"{safe_int(bj.get('tag_5_cnt'))}/{n}"
         # 讨论
         tn, cn = parse_discuss_req(d.get("task", {}).get("0", ""))
-        if tn or cn: tasks["讨论"] = f"帖{int(bj.get('topic_cnt',0))}/{tn} 回{int(bj.get('comment_cnt',0))}/{cn}"
+        if tn or cn: tasks["讨论"] = f"帖{safe_int(bj.get('topic_cnt'))}/{tn} 回{safe_int(bj.get('comment_cnt'))}/{cn}"
         if tasks:
             entries.append((bid, title, tasks, b))
 
@@ -268,14 +268,14 @@ def main():
         bi = d.get("book", {})
         tasks = {}
         tts_ok = cfg["tts_backend"] and cfg["tts_backend"] != "none"
-        n = int(bi.get("tag_3_config", 0))
-        if n and tts_ok: tasks["朗读"] = f"{int(bj.get('tag_3_cnt',0))}/{n}"
-        n = int(bi.get("tag_6_config", 0))
-        if n: tasks["摘抄"] = f"{int(bj.get('tag_6_cnt',0))}/{n}"
-        n = int(bi.get("tag_5_config", 0))
-        if n: tasks["报告"] = f"{int(bj.get('tag_5_cnt',0))}/{n}"
+        n = safe_int(bi.get("tag_3_config"))
+        if n and tts_ok: tasks["朗读"] = f"{safe_int(bj.get('tag_3_cnt'))}/{n}"
+        n = safe_int(bi.get("tag_6_config"))
+        if n: tasks["摘抄"] = f"{safe_int(bj.get('tag_6_cnt'))}/{n}"
+        n = safe_int(bi.get("tag_5_config"))
+        if n: tasks["报告"] = f"{safe_int(bj.get('tag_5_cnt'))}/{n}"
         tn, cn = parse_discuss_req(d.get("task", {}).get("0", ""))
-        if tn or cn: tasks["讨论"] = f"帖{int(bj.get('topic_cnt',0))}/{tn} 回{int(bj.get('comment_cnt',0))}/{cn}"
+        if tn or cn: tasks["讨论"] = f"帖{safe_int(bj.get('topic_cnt'))}/{tn} 回{safe_int(bj.get('comment_cnt'))}/{cn}"
 
         tag_keys = list(tasks.keys())
         all_options = ["模拟阅读"] + tag_keys
